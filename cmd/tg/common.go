@@ -20,6 +20,7 @@ type messageOptions struct {
 	silent    bool
 	noWebpage bool
 	schedule  time.Duration
+	topic     int
 }
 
 // register binds the shared message flags onto the given flag set.
@@ -31,6 +32,13 @@ func (o *messageOptions) register(fs *pflag.FlagSet) {
 		"disable generation of the webpage preview")
 	fs.DurationVar(&o.schedule, "schedule", 0,
 		"schedule the message to be sent after this delay")
+}
+
+// registerTopic binds --topic, for commands that post a new message (not
+// replies, which already land in the topic of the message they answer).
+func (o *messageOptions) registerTopic(fs *pflag.FlagSet) {
+	fs.IntVar(&o.topic, "topic", 0,
+		"post into this forum topic (id from `tg topics list`; 1 or unset = General)")
 }
 
 // maxStdinText bounds message text read from stdin (Telegram's own limit is
@@ -105,6 +113,11 @@ func (o *messageOptions) apply(
 	}
 	if o.schedule > 0 {
 		b = b.Schedule(time.Now().Add(o.schedule))
+	}
+	if o.topic > generalTopicID {
+		// A message replying to a topic's creation message is posted into that
+		// topic; the General topic takes plain messages.
+		b = b.Reply(o.topic)
 	}
 
 	option := styling.Plain(msg)
