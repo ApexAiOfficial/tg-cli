@@ -148,6 +148,9 @@ func currentDefaultRights(ctx context.Context, api *tg.Client, p peers.Peer) (tg
 		return tg.ChatBannedRights{}, errors.Wrap(err, "get chat")
 	}
 	for _, c := range chats.GetChats() {
+		if c.GetID() != p.ID() {
+			continue
+		}
 		switch v := c.(type) {
 		case *tg.Channel:
 			r, _ := v.GetDefaultBannedRights()
@@ -439,8 +442,10 @@ func (a *app) newChatToggleCmd() *cobra.Command {
 		Example: `  tg chat-toggle @mygroup join-to-send on
   tg chat-toggle @mychannel signatures off`,
 		Args: cobra.ExactArgs(3),
-		ValidArgsFunction: func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			switch len(args) {
+			case 0:
+				return peerArgCompletion(cmd, args, toComplete)
 			case 1:
 				return names, cobra.ShellCompDirectiveNoFileComp
 			case 2:

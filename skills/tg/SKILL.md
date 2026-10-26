@@ -186,8 +186,8 @@ tg chat full @mygroup -o json        # forum, linked_chat_id, default_banned_rig
 tg topics list @mygroup -o json      # id, title, icon_emoji_id, closed, hidden, pinned
 
 # Topics: pick an icon, create (prints the id), post into it, pin it
-tg topics icons -o json              # [{"emoji":"💡","document_id":"…"}]
-tg topics create @mygroup "Ideas" --icon-emoji-id <document_id> -o json   # {"id":N,…}
+tg topics icons -o json              # .data.icons[] = {"emoji":"💡","document_id":"…"}
+tg topics create @mygroup "Ideas" --icon-emoji-id <document_id> -o json   # .data.id = N
 tg send --peer @mygroup --topic N --html "<b>What goes here</b>…" -o json
 tg pin @mygroup <message-id> --silent
 tg topics pin @mygroup N

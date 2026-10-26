@@ -270,3 +270,12 @@ func TestMessageOptionsTopic(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateTopic(t *testing.T) {
+	for topic, ok := range map[int]bool{-1: false, 0: true, 1: true, 54: true} {
+		err := (&messageOptions{topic: topic}).validateTopic()
+		if (err == nil) != ok {
+			t.Errorf("validateTopic(%d) = %v", topic, err)
+		}
+	}
+}

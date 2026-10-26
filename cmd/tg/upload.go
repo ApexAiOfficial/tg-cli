@@ -269,6 +269,9 @@ With --wait the peer's response to the upload is collected, as for ` + "`tg send
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			arg := args[0]
+			if err := uf.msg.validateTopic(); err != nil {
+				return err
+			}
 			// Fail before connecting when there is nothing to upload.
 			if _, err := os.Stat(arg); err != nil {
 				return errors.Wrap(err, "upload")
