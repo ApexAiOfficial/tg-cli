@@ -38,7 +38,16 @@ func (o *messageOptions) register(fs *pflag.FlagSet) {
 // replies, which already land in the topic of the message they answer).
 func (o *messageOptions) registerTopic(fs *pflag.FlagSet) {
 	fs.IntVar(&o.topic, "topic", 0,
-		"post into this forum topic (id from `tg topics list`; 1 or unset = General)")
+		"post into this forum topic (id from tg topics list; 1 or unset = General)")
+}
+
+// validateTopic rejects a negative --topic, which would otherwise post to
+// General silently.
+func (o *messageOptions) validateTopic() error {
+	if o.topic < 0 {
+		return usageError{errors.Errorf("invalid --topic %d", o.topic)}
+	}
+	return nil
 }
 
 // maxStdinText bounds message text read from stdin (Telegram's own limit is

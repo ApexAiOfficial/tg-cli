@@ -98,8 +98,10 @@ func (r topicsResult) MarshalText(w io.Writer) error {
 	return nil
 }
 
-// topicCreatedResult is the result of `tg topics create`.
+// topicCreatedResult is the result of `tg topics create`. It keeps the "ok"
+// field the command emitted before it reported the new topic.
 type topicCreatedResult struct {
+	OK    bool   `json:"ok"`
 	ID    int    `json:"id"`
 	Title string `json:"title"`
 }
@@ -330,9 +332,8 @@ func (a *app) newTopicsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list <peer>",
 		Short: "List forum topics",
-		Long: `List every forum topic with its id, title, icon and state (pinned, closed,
-hidden). JSON output adds icon_color, icon_emoji_id, top_message, unread_count
-and date.`,
+		Long: `List every forum topic with its id, title and state (pinned, closed, hidden).
+JSON output adds icon_color, icon_emoji_id, top_message, unread_count and date.`,
 		Example:           "  tg topics list @mygroup\n  tg topics list @mygroup -o json",
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: peerArgCompletion,
@@ -391,12 +392,12 @@ sets a custom emoji icon from ` + "`tg topics icons`" + ` instead.`,
 				if !ok {
 					return errors.New("messages.createForumTopic: no topic id in the response")
 				}
-				return a.printer.Emit(topicCreatedResult{ID: id, Title: args[1]})
+				return a.printer.Emit(topicCreatedResult{OK: true, ID: id, Title: args[1]})
 			})
 		},
 	}
 	cmd.Flags().StringVar(&color, "icon-color", "", "icon color: 6FB9F0, FFD67E, CB86DB, 8EEE98, FF93B2 or FB6F5F")
-	cmd.Flags().StringVar(&emojiID, "icon-emoji-id", "", "custom emoji icon (document id from `tg topics icons`)")
+	cmd.Flags().StringVar(&emojiID, "icon-emoji-id", "", "custom emoji icon (document id from tg topics icons)")
 	return cmd
 }
 

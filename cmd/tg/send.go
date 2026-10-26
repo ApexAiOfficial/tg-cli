@@ -72,6 +72,9 @@ replies (and edits) it collected: it stops when the peer has been quiet for
   printf '%s' "$CODE" | tg send --peer @mybot --stdin --wait 20s`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := msg.validateTopic(); err != nil {
+				return err
+			}
 			text, err := messageText(args, fromStdin, cmd.InOrStdin())
 			if err != nil {
 				return err

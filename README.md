@@ -71,7 +71,7 @@ Bot login still works too: provide a token via `tg init --token <bot-token>` and
   envelope `{"schema":1,"data":…}` on stdout. Logs, prompts and progress go to stderr.
 - **Consistent peers:** every `<peer>` accepts `me`/`self`, `@username`, a phone number,
   or a `t.me/…` link. Resolved access-hashes are cached locally.
-- **Safety:** destructive actions (`delete`, `delete-history`, `unpin-all`) require `--yes`.
+- **Safety:** destructive actions (`delete`, `delete-history`, `unpin-all`, `topics delete`) require `--yes`.
 - **Stable exit codes and JSON errors** (see [Exit codes](#exit-codes)), and a global
   `--timeout` so no call can hang an agent.
 - **Secrets off the command line:** `send`, `reply` and `edit` take `--stdin`.
