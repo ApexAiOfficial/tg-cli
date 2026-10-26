@@ -59,6 +59,9 @@ replies (and edits) it collected: it stops when the peer has been quiet for
   # Message a peer without a username, by numeric id (cache it first)
   tg chats list >/dev/null && tg send --peer id:2201861038 "hi"
 
+  # Post into a forum topic (ids from tg topics list)
+  tg send --peer @mygroup --topic 12 "Welcome to this topic"
+
   # HTML formatting, sent silently
   tg send --peer @durov --html --silent "<b>bold</b>"
 
@@ -105,6 +108,7 @@ replies (and edits) it collected: it stops when the peer has been quiet for
 		"peer to write (username, phone, deep link, or id:<n>); default: yourself")
 	fs.BoolVar(&fromStdin, "stdin", false, "read the message text from standard input")
 	msg.register(fs)
+	msg.registerTopic(fs)
 	wait.register(fs)
 	registerPeerCompletion(cmd, "peer")
 

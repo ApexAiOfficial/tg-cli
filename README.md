@@ -115,8 +115,14 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
   search, add, delete, block/unblock, blocked, import).
 - **Groups & channels:** `create-group`, `create-channel`, `invite`, `leave`,
   `participants`/`admins`/`banned`, `promote`/`demote`, `ban`/`unban`, `slow-mode`,
-  `set-title`/`set-about`/`set-photo`, `invite-link`/`join-link`, `topics`,
-  `recent-actions`.
+  `set-title`/`set-about`/`set-photo`, `invite-link`/`join-link`, `recent-actions`,
+  `link-discussion` (a channel's comment group), `set-permissions` (default member
+  rights), `set-reactions`, `chat-toggle` (signatures, join-to-send, join-request,
+  prehistory-hidden, antispam, participants-hidden, noforwards); `chat full` reports
+  these settings.
+- **Forums:** `topics` list, create (icon color or emoji, prints the new id), edit
+  (title, icon, close, hide General), delete, pin/unpin, reorder, icons,
+  enable/disable; `send`/`upload --topic <id>` posts into a topic.
 - **Profile & folders:** `profile` (update, set/delete photo, status), `folders`
   (list, create, add-chat/remove-chat, delete, reorder).
 - **Realtime:** `watch [peer]` streams new messages as JSON lines; `wait [peer]` blocks
