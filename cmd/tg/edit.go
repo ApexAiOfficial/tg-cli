@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 
 	"github.com/go-faster/errors"
 	"github.com/spf13/cobra"
@@ -52,10 +54,11 @@ or a t.me link. The new text may come from --stdin.`,
 				if useHTML {
 					opt = html.String(nil, text)
 				}
-				if err := editMessage(ctx, bf, id, opt); err != nil {
+				edited, err := editMessage(ctx, bf, id, opt)
+				if err != nil {
 					return err
 				}
-				return a.printer.Emit(sentResult{Peer: args[0], MessageID: id})
+				return a.printer.Emit(editedResult{Peer: args[0], MessageID: edited})
 			})
 		},
 	}
@@ -66,12 +69,25 @@ or a t.me link. The new text may come from --stdin.`,
 	return cmd
 }
 
-// editMessage edits message id. Telegram answers with edit updates (for a
-// channel post with a linked discussion group, also one for the group's copy),
-// which unpack.MessageID does not read, so the RPC's error is the only result.
-func editMessage(ctx context.Context, b *message.RequestBuilder, id int, opt styling.StyledTextOption) error {
-	if _, err := b.Edit(id).StyledText(ctx, opt); err != nil {
-		return errors.Wrap(err, "edit")
+// editedResult is the result of `tg edit`. Its JSON matches sentResult.
+type editedResult struct {
+	Peer      string `json:"peer,omitempty"`
+	MessageID int    `json:"message_id"`
+}
+
+// MarshalText renders a short acknowledgement.
+func (r editedResult) MarshalText(w io.Writer) error {
+	_, err := fmt.Fprintf(w, "edited message #%d\n", r.MessageID)
+	return err
+}
+
+// editMessage edits message id and returns it. Telegram answers with edit
+// updates (for a channel post with a linked discussion group, the group copy's
+// first), which unpack.MessageID does not read, so the RPC's error is the only
+// result. MESSAGE_NOT_MODIFIED means the message already has the text.
+func editMessage(ctx context.Context, b *message.RequestBuilder, id int, opt styling.StyledTextOption) (int, error) {
+	if _, err := b.Edit(id).StyledText(ctx, opt); err != nil && !tg.IsMessageNotModified(err) {
+		return 0, errors.Wrap(err, "edit")
 	}
-	return nil
+	return id, nil
 }

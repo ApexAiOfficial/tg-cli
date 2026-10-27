@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/styling"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 // TestEditMessageLinkedChannel covers an edit of a channel post whose discussion
@@ -31,20 +33,46 @@ func TestEditMessageLinkedChannel(t *testing.T) {
 	})
 
 	b := message.NewSender(api).To(&tg.InputPeerSelf{})
-	if err := editMessage(context.Background(), b, 21, styling.Plain("new")); err != nil {
+	id, err := editMessage(context.Background(), b, 21, styling.Plain("new"))
+	if err != nil {
 		t.Fatal(err)
+	}
+	if id != 21 {
+		t.Errorf("reported id %d, want the channel post 21", id)
 	}
 	if req.ID != 21 || req.Message != "new" {
 		t.Errorf("request = id %d text %q", req.ID, req.Message)
 	}
 }
 
-func TestEditMessageError(t *testing.T) {
-	api := newFuncAPI(t, func(bin.Encoder) (bin.Encoder, error) {
-		return nil, errors.New("MESSAGE_NOT_MODIFIED")
-	})
-	b := message.NewSender(api).To(&tg.InputPeerSelf{})
-	if err := editMessage(context.Background(), b, 21, styling.Plain("same")); err == nil {
-		t.Fatal("edit error was swallowed")
+func TestEditMessageErrors(t *testing.T) {
+	for _, tc := range []struct {
+		rpc     string
+		wantErr bool
+	}{
+		{rpc: tg.ErrMessageNotModified},
+		{rpc: tg.ErrMessageIDInvalid, wantErr: true},
+	} {
+		api := newFuncAPI(t, func(bin.Encoder) (bin.Encoder, error) {
+			return nil, tgerr.New(400, tc.rpc)
+		})
+		b := message.NewSender(api).To(&tg.InputPeerSelf{})
+		id, err := editMessage(context.Background(), b, 21, styling.Plain("same"))
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v, want error %v", tc.rpc, err, tc.wantErr)
+		}
+		if !tc.wantErr && id != 21 {
+			t.Errorf("%s: id = %d", tc.rpc, id)
+		}
+	}
+}
+
+func TestEditedResultText(t *testing.T) {
+	var buf bytes.Buffer
+	if err := (editedResult{Peer: "@x", MessageID: 21}).MarshalText(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if got := buf.String(); got != "edited message #21\n" {
+		t.Errorf("text = %q", got)
 	}
 }
