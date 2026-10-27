@@ -6,9 +6,9 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/spf13/cobra"
 
+	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/html"
 	"github.com/gotd/td/telegram/message/styling"
-	"github.com/gotd/td/telegram/message/unpack"
 	"github.com/gotd/td/tg"
 )
 
@@ -52,11 +52,10 @@ or a t.me link. The new text may come from --stdin.`,
 				if useHTML {
 					opt = html.String(nil, text)
 				}
-				newID, err := unpack.MessageID(bf.Edit(id).StyledText(ctx, opt))
-				if err != nil {
-					return errors.Wrap(err, "edit")
+				if err := editMessage(ctx, bf, id, opt); err != nil {
+					return err
 				}
-				return a.printer.Emit(sentResult{Peer: args[0], MessageID: newID})
+				return a.printer.Emit(sentResult{Peer: args[0], MessageID: id})
 			})
 		},
 	}
@@ -65,4 +64,14 @@ or a t.me link. The new text may come from --stdin.`,
 	cmd.Flags().BoolVar(&fromStdin, "stdin", false, "read the new text from standard input")
 
 	return cmd
+}
+
+// editMessage edits message id. Telegram answers with edit updates (for a
+// channel post with a linked discussion group, also one for the group's copy),
+// which unpack.MessageID does not read, so the RPC's error is the only result.
+func editMessage(ctx context.Context, b *message.RequestBuilder, id int, opt styling.StyledTextOption) error {
+	if _, err := b.Edit(id).StyledText(ctx, opt); err != nil {
+		return errors.Wrap(err, "edit")
+	}
+	return nil
 }
