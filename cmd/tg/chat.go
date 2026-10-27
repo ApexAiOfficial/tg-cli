@@ -80,8 +80,8 @@ func (s chatSettings) fields() [][2]string {
 		on bool
 	}{
 		{"broadcast", s.Broadcast}, {"megagroup", s.Megagroup}, {"forum", s.Forum}, {"has_photo", s.HasPhoto},
-		{"signatures", s.Signatures}, {"join_to_send", s.JoinToSend}, {"join_request", s.JoinRequest},
-		{"prehistory_hidden", s.PrehistoryHidden}, {"antispam", s.Antispam}, {"noforwards", s.Noforwards},
+		{settingSignatures, s.Signatures}, {"join_to_send", s.JoinToSend}, {"join_request", s.JoinRequest},
+		{"prehistory_hidden", s.PrehistoryHidden}, {settingAntispam, s.Antispam}, {settingNoforwards, s.Noforwards},
 		{"participants_hidden", s.ParticipantsHidden},
 	} {
 		add(b.k, b.on, "yes")
@@ -127,12 +127,19 @@ func channelSettings(ch *tg.Channel, full *tg.ChannelFull) chatSettings {
 	return s
 }
 
-// describeReactions renders a chat's reaction setting as "all", "some" (with
-// the allowed emoji) or "none".
+// Reaction modes reported by describeReactions.
+const (
+	reactionsAll  = "all"
+	reactionsSome = "some"
+	reactionsNone = "none"
+)
+
+// describeReactions renders a chat's reaction setting as reactionsAll,
+// reactionsSome (with the allowed emoji) or reactionsNone.
 func describeReactions(r tg.ChatReactionsClass) (mode string, emoji []string) {
 	switch v := r.(type) {
 	case *tg.ChatReactionsAll:
-		return "all", nil
+		return reactionsAll, nil
 	case *tg.ChatReactionsSome:
 		for _, rc := range v.Reactions {
 			switch e := rc.(type) {
@@ -142,9 +149,9 @@ func describeReactions(r tg.ChatReactionsClass) (mode string, emoji []string) {
 				emoji = append(emoji, "custom:"+strconv.FormatInt(e.DocumentID, 10))
 			}
 		}
-		return "some", emoji
+		return reactionsSome, emoji
 	case *tg.ChatReactionsNone:
-		return "none", nil
+		return reactionsNone, nil
 	}
 	return "", nil
 }

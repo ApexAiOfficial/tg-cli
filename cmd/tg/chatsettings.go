@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/go-faster/errors"
@@ -24,6 +25,8 @@ type rightField struct {
 
 // rightFields lists the default member rights of r that `tg set-permissions`
 // manages, in Telegram's settings order.
+//
+//nolint:goconst // this table is where the right names are defined
 func rightFields(r *tg.ChatBannedRights) []rightField {
 	return []rightField{
 		{"send_messages", &r.SendMessages},
@@ -180,7 +183,7 @@ Rights: ` + strings.Join(rightNames(), ", ") + `.`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: peerArgCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			deny, allow := splitNames(deny), splitNames(allow)
+			denied, allowed := splitNames(deny), splitNames(allow)
 			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
 				m, err := a.manager(api)
 				if err != nil {
@@ -194,11 +197,11 @@ Rights: ` + strings.Join(rightNames(), ", ") + `.`,
 				if err != nil {
 					return err
 				}
-				next, err := applyRights(current, deny, allow)
+				next, err := applyRights(current, denied, allowed)
 				if err != nil {
 					return err
 				}
-				if len(deny)+len(allow) > 0 {
+				if len(denied)+len(allowed) > 0 {
 					if _, err := api.MessagesEditChatDefaultBannedRights(ctx, &tg.MessagesEditChatDefaultBannedRightsRequest{
 						Peer:         p.InputPeer(),
 						BannedRights: next,
@@ -337,6 +340,13 @@ link. Posts published before the link was made get no comments.`,
 	return cmd
 }
 
+// Settings named the same by `tg chat-toggle` and the `tg chat full` text output.
+const (
+	settingSignatures = "signatures"
+	settingAntispam   = "antispam"
+	settingNoforwards = "noforwards"
+)
+
 // chatToggles maps each `tg chat-toggle` setting to the call that sets it.
 func chatToggles() map[string]func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
 	channelOnly := func(p peers.Peer) (tg.InputChannelClass, error) {
@@ -347,7 +357,7 @@ func chatToggles() map[string]func(ctx context.Context, api *tg.Client, p peers.
 		return ch.InputChannel(), nil
 	}
 	return map[string]func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error{
-		"signatures": func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
+		settingSignatures: func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
 			ch, err := channelOnly(p)
 			if err != nil {
 				return err
@@ -379,7 +389,7 @@ func chatToggles() map[string]func(ctx context.Context, api *tg.Client, p peers.
 			_, err = api.ChannelsTogglePreHistoryHidden(ctx, &tg.ChannelsTogglePreHistoryHiddenRequest{Channel: ch, Enabled: on})
 			return wrapRPC(err, "channels.togglePreHistoryHidden")
 		},
-		"antispam": func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
+		settingAntispam: func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
 			ch, err := channelOnly(p)
 			if err != nil {
 				return err
@@ -395,7 +405,7 @@ func chatToggles() map[string]func(ctx context.Context, api *tg.Client, p peers.
 			_, err = api.ChannelsToggleParticipantsHidden(ctx, &tg.ChannelsToggleParticipantsHiddenRequest{Channel: ch, Enabled: on})
 			return wrapRPC(err, "channels.toggleParticipantsHidden")
 		},
-		"noforwards": func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
+		settingNoforwards: func(ctx context.Context, api *tg.Client, p peers.Peer, on bool) error {
 			_, err := api.MessagesToggleNoForwards(ctx, &tg.MessagesToggleNoForwardsRequest{Peer: p.InputPeer(), Enabled: on})
 			return wrapRPC(err, "messages.toggleNoForwards")
 		},
@@ -413,13 +423,22 @@ func chatToggleNames() []string {
 	return names
 }
 
+// The values `tg chat-toggle` completes; parseOnOff also takes yes/no and booleans.
+const (
+	toggleOn  = "on"
+	toggleOff = "off"
+)
+
 // parseOnOff parses an on/off argument.
 func parseOnOff(s string) (bool, error) {
 	switch strings.ToLower(s) {
-	case "on", "true", "yes", "1":
+	case toggleOn, "yes":
 		return true, nil
-	case "off", "false", "no", "0":
+	case toggleOff, "no":
 		return false, nil
+	}
+	if on, err := strconv.ParseBool(s); err == nil {
+		return on, nil
 	}
 	return false, usageError{errors.Errorf("invalid value %q: use on or off", s)}
 }
@@ -449,7 +468,7 @@ func (a *app) newChatToggleCmd() *cobra.Command {
 			case 1:
 				return names, cobra.ShellCompDirectiveNoFileComp
 			case 2:
-				return []string{"on", "off"}, cobra.ShellCompDirectiveNoFileComp
+				return []string{toggleOn, toggleOff}, cobra.ShellCompDirectiveNoFileComp
 			}
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		},
