@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 // generalTopicID is the id of a forum's "General" topic, which always exists,
@@ -469,7 +470,7 @@ func (a *app) newTopicsEditCmd() *cobra.Command {
 			}
 			return a.withPeer(cmd, args[0], func(ctx context.Context, api *tg.Client, peer tg.InputPeerClass) error {
 				req.Peer = peer
-				if _, err := api.MessagesEditForumTopic(ctx, req); err != nil {
+				if _, err := api.MessagesEditForumTopic(ctx, req); err != nil && !tgerr.Is(err, "TOPIC_NOT_MODIFIED") {
 					return errors.Wrap(err, "messages.editForumTopic")
 				}
 				return a.printer.Emit(okResult{OK: true})
@@ -632,7 +633,7 @@ func (a *app) toggleForum(cmd *cobra.Command, arg string, enabled bool) error {
 		if _, err := api.ChannelsToggleForum(ctx, &tg.ChannelsToggleForumRequest{
 			Channel: ch,
 			Enabled: enabled,
-		}); err != nil {
+		}); err != nil && !tgIsNotModified(err) {
 			return errors.Wrap(err, "channels.toggleForum")
 		}
 		return a.printer.Emit(okResult{OK: true})
