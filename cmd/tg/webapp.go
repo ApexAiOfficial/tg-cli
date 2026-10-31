@@ -13,6 +13,7 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/spf13/cobra"
 
+	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
 
 	"github.com/gotd/cli/internal/atomicfile"
@@ -20,6 +21,14 @@ import (
 
 // webAppDefaultPlatform is the client the session is requested as.
 const webAppDefaultPlatform = "tdesktop"
+
+// What opened a Mini App.
+const (
+	webAppSourceMenu   = "menu_button"
+	webAppSourceButton = "button"
+	webAppSourceURL    = "url"
+	webAppSourceMain   = "main"
+)
 
 // webAppResult is the result of `tg webapp`. It never carries the signed
 // launch data unless --reveal asks for it: that data is a credential for the
@@ -151,16 +160,115 @@ func webAppButtonURL(b tg.KeyboardButtonClass) (target string, simple, ok bool) 
 	return "", false, false
 }
 
+// webAppOptions are the flags of `tg webapp`.
+type webAppOptions struct {
+	url        string
+	text       string
+	main       bool
+	startParam string
+	platform   string
+	out        string
+	reveal     bool
+}
+
+func (o webAppOptions) validate() error {
+	if (o.url != "" && o.text != "") || (o.main && (o.url != "" || o.text != "")) {
+		return usageError{errors.New("use only one of --url, --text and --main")}
+	}
+	return nil
+}
+
+// webAppTarget is what to open.
+type webAppTarget struct {
+	source string
+	url    string
+	simple bool // a client opens it with messages.requestSimpleWebView
+}
+
+// resolveWebAppTarget finds the page the options name.
+func resolveWebAppTarget(ctx context.Context, api *tg.Client, bot peers.User, name string, o webAppOptions) (webAppTarget, error) {
+	switch {
+	case o.main:
+		return webAppTarget{source: webAppSourceMain}, nil
+	case o.url != "":
+		return webAppTarget{source: webAppSourceURL, url: o.url}, nil
+	case o.text != "":
+		msg, err := keyboardMessage(ctx, api, bot.InputPeer(), 0)
+		if err != nil {
+			return webAppTarget{}, err
+		}
+		btn, err := selectButtonByText(keyboardButtons(msg.ReplyMarkup), o.text)
+		if err != nil {
+			return webAppTarget{}, err
+		}
+		target, simple, ok := webAppButtonURL(btn.raw)
+		if !ok {
+			return webAppTarget{}, usageError{errors.Errorf("button %q does not open a Mini App", o.text)}
+		}
+		return webAppTarget{source: webAppSourceButton, url: target, simple: simple}, nil
+	}
+	full, err := bot.FullRaw(ctx)
+	if err != nil {
+		return webAppTarget{}, errors.Wrap(err, "users.getFullUser")
+	}
+	info, ok := full.GetBotInfo()
+	if !ok {
+		return webAppTarget{}, notFoundf("%s has no bot info", name)
+	}
+	menu, ok := info.MenuButton.(*tg.BotMenuButton)
+	if !ok {
+		return webAppTarget{}, notFoundf("%s has no Mini App menu button", name)
+	}
+	return webAppTarget{source: webAppSourceMenu, url: menu.URL}, nil
+}
+
+// requestWebApp asks Telegram to open the target, with the call a client uses for it.
+func requestWebApp(ctx context.Context, api *tg.Client, bot peers.User, t webAppTarget, o webAppOptions) (*tg.WebViewResultURL, error) {
+	peer, user := bot.InputPeer(), bot.InputUser()
+	switch {
+	case t.source == webAppSourceMain:
+		res, err := api.MessagesRequestMainWebView(ctx, &tg.MessagesRequestMainWebViewRequest{
+			Peer: peer, Bot: user, StartParam: o.startParam, Platform: o.platform,
+		})
+		return res, errors.Wrap(err, "messages.requestMainWebView")
+	case t.simple:
+		res, err := api.MessagesRequestSimpleWebView(ctx, &tg.MessagesRequestSimpleWebViewRequest{
+			Bot: user, URL: t.url, Platform: o.platform,
+		})
+		return res, errors.Wrap(err, "messages.requestSimpleWebView")
+	}
+	res, err := api.MessagesRequestWebView(ctx, &tg.MessagesRequestWebViewRequest{
+		FromBotMenu: t.source == webAppSourceMenu,
+		Peer:        peer, Bot: user, URL: t.url, StartParam: o.startParam, Platform: o.platform,
+	})
+	return res, errors.Wrap(err, "messages.requestWebView")
+}
+
+// newWebAppResult builds the result from what Telegram returned, and writes --out.
+func newWebAppResult(bot peers.User, source, signedURL string, o webAppOptions) (webAppResult, error) {
+	launch, err := parseWebAppURL(signedURL)
+	if err != nil {
+		return webAppResult{}, err
+	}
+	res := webAppResult{
+		Peer: describeManagedPeer(bot), Source: source, URL: launch.Page,
+		Platform: launch.Platform, Version: launch.Version, Signed: launch.InitData != "",
+		UserID: launch.UserID, AuthDate: launch.AuthDate, QueryID: launch.QueryID, StartParam: launch.StartParam,
+	}
+	if o.out != "" {
+		if err := writeWebAppSecret(o.out, signedURL, launch); err != nil {
+			return webAppResult{}, err
+		}
+		res.OutFile = o.out
+	}
+	if o.reveal {
+		res.SignedURL, res.InitData = signedURL, launch.InitData
+	}
+	return res, nil
+}
+
 func (a *app) newWebAppCmd() *cobra.Command {
-	var (
-		pageURL    string
-		text       string
-		main       bool
-		startParam string
-		platform   string
-		out        string
-		reveal     bool
-	)
+	var o webAppOptions
 	cmd := &cobra.Command{
 		Use:     "webapp <bot>",
 		Short:   "Open a bot's Mini App and get its signed launch data",
@@ -188,8 +296,8 @@ name and language to the bot's server, as any client does.`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: peerArgCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if (pageURL != "" && text != "") || (main && (pageURL != "" || text != "")) {
-				return usageError{errors.New("use only one of --url, --text and --main")}
+			if err := o.validate(); err != nil {
+				return err
 			}
 			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
 				m, err := a.manager(api)
@@ -200,85 +308,17 @@ name and language to the bot's server, as any client does.`,
 				if err != nil {
 					return err
 				}
-				inputUser, peer := bot.InputUser(), bot.InputPeer()
-
-				source := "url"
-				target := pageURL
-				simple := false
-				switch {
-				case main:
-					source = "main"
-				case text != "":
-					source = "button"
-					msg, err := keyboardMessage(ctx, api, peer, 0)
-					if err != nil {
-						return err
-					}
-					btn, err := selectButtonByText(keyboardButtons(msg.ReplyMarkup), text)
-					if err != nil {
-						return err
-					}
-					var ok bool
-					if target, simple, ok = webAppButtonURL(btn.raw); !ok {
-						return usageError{errors.Errorf("button %q does not open a Mini App", text)}
-					}
-				case target == "":
-					source = "menu_button"
-					full, err := bot.FullRaw(ctx)
-					if err != nil {
-						return errors.Wrap(err, "users.getFullUser")
-					}
-					info, ok := full.GetBotInfo()
-					if !ok {
-						return notFoundf("%s has no bot info", args[0])
-					}
-					menu, ok := info.MenuButton.(*tg.BotMenuButton)
-					if !ok {
-						return notFoundf("%s has no Mini App menu button", args[0])
-					}
-					target = menu.URL
-				}
-
-				var result *tg.WebViewResultURL
-				switch {
-				case main:
-					result, err = api.MessagesRequestMainWebView(ctx, &tg.MessagesRequestMainWebViewRequest{
-						Peer: peer, Bot: inputUser, StartParam: startParam, Platform: platform,
-					})
-					err = errors.Wrap(err, "messages.requestMainWebView")
-				case simple:
-					result, err = api.MessagesRequestSimpleWebView(ctx, &tg.MessagesRequestSimpleWebViewRequest{
-						Bot: inputUser, URL: target, Platform: platform,
-					})
-					err = errors.Wrap(err, "messages.requestSimpleWebView")
-				default:
-					result, err = api.MessagesRequestWebView(ctx, &tg.MessagesRequestWebViewRequest{
-						FromBotMenu: source == "menu_button",
-						Peer:        peer, Bot: inputUser, URL: target, StartParam: startParam, Platform: platform,
-					})
-					err = errors.Wrap(err, "messages.requestWebView")
-				}
+				target, err := resolveWebAppTarget(ctx, api, bot, args[0], o)
 				if err != nil {
 					return err
 				}
-
-				launch, err := parseWebAppURL(result.URL)
+				view, err := requestWebApp(ctx, api, bot, target, o)
 				if err != nil {
 					return err
 				}
-				res := webAppResult{
-					Peer: describeManagedPeer(bot), Source: source, URL: launch.Page,
-					Platform: launch.Platform, Version: launch.Version, Signed: launch.InitData != "",
-					UserID: launch.UserID, AuthDate: launch.AuthDate, QueryID: launch.QueryID, StartParam: launch.StartParam,
-				}
-				if out != "" {
-					if err := writeWebAppSecret(out, result.URL, launch); err != nil {
-						return err
-					}
-					res.OutFile = out
-				}
-				if reveal {
-					res.SignedURL, res.InitData = result.URL, launch.InitData
+				res, err := newWebAppResult(bot, target.source, view.URL, o)
+				if err != nil {
+					return err
 				}
 				return a.printer.Emit(res)
 			})
@@ -286,13 +326,13 @@ name and language to the bot's server, as any client does.`,
 	}
 
 	fs := cmd.Flags()
-	fs.StringVar(&pageURL, "url", "", "open this URL as the bot's Mini App")
-	fs.StringVar(&text, "text", "", "open the web app button with this label")
-	fs.BoolVar(&main, "main", false, "open the bot's main Mini App")
-	fs.StringVar(&startParam, "start-param", "", "start parameter passed to the app")
-	fs.StringVar(&platform, "platform", webAppDefaultPlatform, "client platform to report (tdesktop, android, ios, web)")
-	fs.StringVar(&out, "out", "", "write the signed URL and launch data to this owner-only file")
-	fs.BoolVar(&reveal, "reveal", false, "print the signed URL and launch data (a credential)")
+	fs.StringVar(&o.url, "url", "", "open this URL as the bot's Mini App")
+	fs.StringVar(&o.text, "text", "", "open the web app button with this label")
+	fs.BoolVar(&o.main, "main", false, "open the bot's main Mini App")
+	fs.StringVar(&o.startParam, "start-param", "", "start parameter passed to the app")
+	fs.StringVar(&o.platform, "platform", webAppDefaultPlatform, "client platform to report (tdesktop, android, ios, web)")
+	fs.StringVar(&o.out, "out", "", "write the signed URL and launch data to this owner-only file")
+	fs.BoolVar(&o.reveal, "reveal", false, "print the signed URL and launch data (a credential)")
 
 	return cmd
 }
