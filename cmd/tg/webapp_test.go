@@ -133,6 +133,21 @@ func TestWriteWebAppSecretIsOwnerOnly(t *testing.T) {
 	}
 }
 
+func TestWebAppOptionsAreExclusive(t *testing.T) {
+	for _, o := range []webAppOptions{
+		{url: "https://a.example/", text: "Open"},
+		{main: true, url: "https://a.example/"},
+		{main: true, text: "Open"},
+	} {
+		if err := o.validate(); err == nil {
+			t.Errorf("no error for %+v", o)
+		}
+	}
+	if err := (webAppOptions{text: "Open"}).validate(); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestWebAppButtonURL(t *testing.T) {
 	if target, simple, ok := webAppButtonURL(&tg.KeyboardButtonWebView{URL: "https://a.example/"}); !ok || simple || target != "https://a.example/" {
 		t.Errorf("web view: %q %v %v", target, simple, ok)
