@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/gotd/td/tg"
 )
 
@@ -34,22 +32,34 @@ func signedURL(t *testing.T, page string) string {
 
 func TestParseWebAppURL(t *testing.T) {
 	launch, err := parseWebAppURL(signedURL(t, "https://store.example:8443/app?x=1"))
-	require.NoError(t, err)
-	require.Equal(t, "https://store.example:8443/app?x=1", launch.Page, "the fragment is gone")
-	require.Equal(t, "9.1", launch.Version)
-	require.Equal(t, "tdesktop", launch.Platform)
-	require.EqualValues(t, 42, launch.UserID)
-	require.EqualValues(t, 1793400000, launch.AuthDate)
-	require.Equal(t, "AAH1", launch.QueryID)
-	require.Equal(t, "promo", launch.StartParam)
-	require.Contains(t, launch.InitData, "hash=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launch.Page != "https://store.example:8443/app?x=1" {
+		t.Errorf("page keeps its fragment: %q", launch.Page)
+	}
+	if launch.Version != "9.1" || launch.Platform != "tdesktop" {
+		t.Errorf("version %q platform %q", launch.Version, launch.Platform)
+	}
+	if launch.UserID != 42 || launch.AuthDate != 1793400000 {
+		t.Errorf("user %d auth date %d", launch.UserID, launch.AuthDate)
+	}
+	if launch.QueryID != "AAH1" || launch.StartParam != "promo" {
+		t.Errorf("query id %q start param %q", launch.QueryID, launch.StartParam)
+	}
+	if !strings.Contains(launch.InitData, "hash=") {
+		t.Errorf("init data lost its hash: %q", launch.InitData)
+	}
 }
 
 func TestParseWebAppURLWithoutLaunchData(t *testing.T) {
 	launch, err := parseWebAppURL("https://store.example/")
-	require.NoError(t, err)
-	require.Equal(t, "https://store.example/", launch.Page)
-	require.Empty(t, launch.InitData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launch.Page != "https://store.example/" || launch.InitData != "" {
+		t.Errorf("got %+v", launch)
+	}
 }
 
 func TestParseWebAppURLErrorsNeverQuoteTheCredential(t *testing.T) {
@@ -59,60 +69,78 @@ func TestParseWebAppURLErrorsNeverQuoteTheCredential(t *testing.T) {
 		"https://store.example/#tgWebAppData=%zz&" + secret,
 	} {
 		_, err := parseWebAppURL(raw)
-		require.Error(t, err)
-		require.NotContains(t, err.Error(), secret)
+		if err == nil {
+			t.Fatalf("no error for %q", raw)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("error quotes the credential: %v", err)
+		}
 	}
 }
 
 func TestWebAppResultTextHidesTheCredential(t *testing.T) {
 	launch, err := parseWebAppURL(signedURL(t, "https://store.example/"))
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	res := webAppResult{
 		Peer: peerRef{ID: 7, Username: "mybot"}, Source: "menu_button", URL: launch.Page,
 		Signed: true, UserID: launch.UserID, AuthDate: launch.AuthDate,
 	}
 	var buf bytes.Buffer
-	require.NoError(t, res.MarshalText(&buf))
-	require.NotContains(t, buf.String(), "hash")
-	require.Contains(t, buf.String(), "user 42")
-
+	if err := res.MarshalText(&buf); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "hash") || !strings.Contains(buf.String(), "user 42") {
+		t.Errorf("text output: %q", buf.String())
+	}
 	encoded, err := json.Marshal(res)
-	require.NoError(t, err)
-	require.NotContains(t, string(encoded), "signed_url", "without --reveal the JSON has no credential")
-	require.NotContains(t, string(encoded), "init_data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "signed_url") || strings.Contains(string(encoded), "init_data") {
+		t.Errorf("JSON carries the credential without --reveal: %s", encoded)
+	}
 }
 
 func TestWriteWebAppSecretIsOwnerOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.json")
 	raw := signedURL(t, "https://store.example/")
 	launch, err := parseWebAppURL(raw)
-	require.NoError(t, err)
-	require.NoError(t, writeWebAppSecret(path, raw, launch))
-
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeWebAppSecret(path, raw, launch); err != nil {
+		t.Fatal(err)
+	}
 	info, err := os.Stat(path)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v", info.Mode().Perm())
+	}
 	data, err := os.ReadFile(path)
-	require.NoError(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var got webAppSecret
-	require.NoError(t, json.Unmarshal(data, &got))
-	require.Equal(t, raw, got.URL)
-	require.Equal(t, launch.InitData, got.InitData)
-	require.Equal(t, "https://store.example/", got.Page)
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.URL != raw || got.InitData != launch.InitData || got.Page != "https://store.example/" {
+		t.Errorf("got %+v", got)
+	}
 }
 
 func TestWebAppButtonURL(t *testing.T) {
-	target, simple, ok := webAppButtonURL(&tg.KeyboardButtonWebView{URL: "https://a.example/"})
-	require.True(t, ok)
-	require.False(t, simple)
-	require.Equal(t, "https://a.example/", target)
-
-	target, simple, ok = webAppButtonURL(&tg.KeyboardButtonSimpleWebView{URL: "https://b.example/"})
-	require.True(t, ok)
-	require.True(t, simple)
-	require.Equal(t, "https://b.example/", target)
-
-	_, _, ok = webAppButtonURL(&tg.KeyboardButtonCallback{Data: []byte("x")})
-	require.False(t, ok)
+	if target, simple, ok := webAppButtonURL(&tg.KeyboardButtonWebView{URL: "https://a.example/"}); !ok || simple || target != "https://a.example/" {
+		t.Errorf("web view: %q %v %v", target, simple, ok)
+	}
+	if target, simple, ok := webAppButtonURL(&tg.KeyboardButtonSimpleWebView{URL: "https://b.example/"}); !ok || !simple || target != "https://b.example/" {
+		t.Errorf("simple web view: %q %v %v", target, simple, ok)
+	}
+	if _, _, ok := webAppButtonURL(&tg.KeyboardButtonCallback{Data: []byte("x")}); ok {
+		t.Error("a callback button is not a Mini App")
+	}
 }
