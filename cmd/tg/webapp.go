@@ -222,6 +222,14 @@ func resolveWebAppTarget(ctx context.Context, api *tg.Client, bot peers.User, na
 	return webAppTarget{source: webAppSourceMenu, url: menu.URL}, nil
 }
 
+// wrapRPC names the call that failed; errors.Wrap does not pass nil through.
+func wrapRPC(err error, call string) error {
+	if err == nil {
+		return nil
+	}
+	return errors.Wrap(err, call)
+}
+
 // requestWebApp asks Telegram to open the target, with the call a client uses for it.
 func requestWebApp(ctx context.Context, api *tg.Client, bot peers.User, t webAppTarget, o webAppOptions) (*tg.WebViewResultURL, error) {
 	peer, user := bot.InputPeer(), bot.InputUser()
@@ -230,18 +238,18 @@ func requestWebApp(ctx context.Context, api *tg.Client, bot peers.User, t webApp
 		res, err := api.MessagesRequestMainWebView(ctx, &tg.MessagesRequestMainWebViewRequest{
 			Peer: peer, Bot: user, StartParam: o.startParam, Platform: o.platform,
 		})
-		return res, errors.Wrap(err, "messages.requestMainWebView")
+		return res, wrapRPC(err, "messages.requestMainWebView")
 	case t.simple:
 		res, err := api.MessagesRequestSimpleWebView(ctx, &tg.MessagesRequestSimpleWebViewRequest{
 			Bot: user, URL: t.url, Platform: o.platform,
 		})
-		return res, errors.Wrap(err, "messages.requestSimpleWebView")
+		return res, wrapRPC(err, "messages.requestSimpleWebView")
 	}
 	res, err := api.MessagesRequestWebView(ctx, &tg.MessagesRequestWebViewRequest{
 		FromBotMenu: t.source == webAppSourceMenu,
 		Peer:        peer, Bot: user, URL: t.url, StartParam: o.startParam, Platform: o.platform,
 	})
-	return res, errors.Wrap(err, "messages.requestWebView")
+	return res, wrapRPC(err, "messages.requestWebView")
 }
 
 // newWebAppResult builds the result from what Telegram returned, and writes --out.
