@@ -269,6 +269,9 @@ With --wait the peer's response to the upload is collected, as for ` + "`tg send
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			arg := args[0]
+			if err := uf.msg.validateTopic(); err != nil {
+				return err
+			}
 			// Fail before connecting when there is nothing to upload.
 			if _, err := os.Stat(arg); err != nil {
 				return errors.Wrap(err, "upload")
@@ -326,6 +329,7 @@ With --wait the peer's response to the upload is collected, as for ` + "`tg send
 	flags.Var(uf.docType, "type", "type of uploaded document (default: detect from MIME)")
 	flags.IntVarP(&uf.threads, "threads", "j", 1, "concurrency limit")
 	uf.msg.register(flags)
+	uf.msg.registerTopic(flags)
 	uf.wait.register(flags)
 
 	registerPeerCompletion(cmd, "peer")

@@ -71,7 +71,7 @@ Bot login still works too: provide a token via `tg init --token <bot-token>` and
   envelope `{"schema":1,"data":…}` on stdout. Logs, prompts and progress go to stderr.
 - **Consistent peers:** every `<peer>` accepts `me`/`self`, `@username`, a phone number,
   or a `t.me/…` link. Resolved access-hashes are cached locally.
-- **Safety:** destructive actions (`delete`, `delete-history`, `unpin-all`) require `--yes`.
+- **Safety:** destructive actions (`delete`, `delete-history`, `unpin-all`, `topics delete`) require `--yes`.
 - **Stable exit codes and JSON errors** (see [Exit codes](#exit-codes)), and a global
   `--timeout` so no call can hang an agent.
 - **Secrets off the command line:** `send`, `reply` and `edit` take `--stdin`.
@@ -116,8 +116,14 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
   search, add, delete, block/unblock, blocked, import).
 - **Groups & channels:** `create-group`, `create-channel`, `invite`, `leave`,
   `participants`/`admins`/`banned`, `promote`/`demote`, `ban`/`unban`, `slow-mode`,
-  `set-title`/`set-about`/`set-photo`, `invite-link`/`join-link`, `topics`,
-  `recent-actions`.
+  `set-title`/`set-about`/`set-photo`, `invite-link`/`join-link`, `recent-actions`,
+  `link-discussion` (a channel's comment group), `set-permissions` (default member
+  rights), `set-reactions`, `chat-toggle` (signatures, join-to-send, join-request,
+  prehistory-hidden, antispam, participants-hidden, noforwards); `chat full` reports
+  these settings.
+- **Forums:** `topics` list, create (icon color or emoji, prints the new id), edit
+  (title, icon, close, hide General), delete, pin/unpin, reorder, icons,
+  enable/disable; `send`/`upload --topic <id>` posts into a topic.
 - **Profile & folders:** `profile` (update, set/delete photo, status), `folders`
   (list, create, add-chat/remove-chat, delete, reorder).
 - **Realtime:** `watch [peer]` streams new messages as JSON lines; `wait [peer]` blocks

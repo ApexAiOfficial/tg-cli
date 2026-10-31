@@ -179,6 +179,40 @@ known. Bots and Telegram rate-limit: pace bursts, don't loop the same command,
 and prefer one `--wait` call over polling `history`. On exit code 5, wait
 `.error.retry_after` seconds before retrying.
 
+## Administering channels and forum groups
+
+Read the current state first; `chat full` reports the settings below.
+
+```bash
+tg chat full @mygroup -o json        # forum, linked_chat_id, default_banned_rights,
+                                     # available_reactions, join_to_send, pinned_msg_id…
+tg topics list @mygroup -o json      # id, title, icon_emoji_id, closed, hidden, pinned
+
+# Topics: pick an icon, create (prints the id), post into it, pin it
+tg topics icons -o json              # .data.icons[] = {"emoji":"💡","document_id":"…"}
+tg topics create @mygroup "Ideas" --icon-emoji-id <document_id> -o json   # .data.id = N
+tg send --peer @mygroup --topic N --html "<b>What goes here</b>…" -o json
+tg pin @mygroup <message-id> --silent
+tg topics pin @mygroup N
+tg topics reorder @mygroup N1 N2 N3 --force     # pinned order, top first
+
+# Edit, close, hide General, delete (destructive: --yes)
+tg topics edit @mygroup N --title "Help" --closed=false
+tg topics edit @mygroup 1 --hidden=true
+tg topics delete @mygroup N --yes
+tg topics disable @mygroup           # back to one flat chat (topics are kept)
+
+# Channel ↔ discussion group, member rights, reactions, toggles
+tg link-discussion @mychannel @mygroup         # new posts get comment threads
+tg set-permissions @mygroup --deny manage_topics,pin_messages,change_info
+tg set-reactions @mychannel --emoji 👍,🔥,❤,🎉
+tg chat-toggle @mygroup join-to-send on
+```
+
+The General topic is always #1: it cannot be deleted, only hidden, and plain
+messages (no `--topic`) land there. Channel posts made before `link-discussion`
+get no comment thread.
+
 ## Multiple accounts
 
 ```bash
