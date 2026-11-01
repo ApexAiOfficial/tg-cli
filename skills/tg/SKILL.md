@@ -143,6 +143,8 @@ printf '%s' "$CODE" | tg send --peer @mybot --stdin --wait 20s -o json
 tg history @mybot --after 4242 -o json
 tg webapp @mybot --out session.json -o json            # open its Mini App as this account: Telegram signs real launch data
 tg webapp @mybot --text "Open store" --out session.json  # or a web app button; --url, --main and --start-param too
+tg invoice 'https://t.me/$AbCdEf123' -o json          # an invoice link's payment form (title, bot, prices); pays nothing
+tg invoice @mybot 4270 -o json                          # or an invoice message: the chat and the message id
 ```
 
 Result shapes (`.data`):
@@ -158,6 +160,7 @@ Result shapes (`.data`):
   are omitted when empty or false, so read them with a default
   (`jq '.data.linked // []'`, Python `.get("linked") or []`).
 - `webapp`: launch data is a credential for that Mini App, so keep it in the owner-only `--out` file. Use `init_data` as `Authorization: tma <init_data>` for the app's API, or load `url` from the file in a browser. Fields: `url` (the page), `source`, `signed`, `user_id`, `auth_date`, `query_id`, `out_file`. `signed_url` and `init_data` appear only with `--reveal`.
+- `invoice`: `kind` (`stars`, `payment` or `star_gift`), `form_id`, `bot`, `title`, `description`, `currency`, `prices[]` (`label`, `amount`), `total`; plus `slug`, or `peer` and `message_id`. Amounts are in the currency's smallest unit (whole Stars for XTR). It only reads the form: `tg` has no command that pays.
 - `click`: `button` (`type`, `text`, `data`, `url`), `row`, `col`, `answer`
   (`answered`, `message`, `alert`, `url`: the toast/alert; `answered: false`
   means the bot did not answer the callback in time), plus `replies`/`edits`.
