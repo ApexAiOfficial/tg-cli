@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/go-faster/errors"
 
 	"github.com/gotd/td/bin"
+	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
+
+	"github.com/gotd/cli/internal/peercache"
 )
 
 func TestParseInvoiceSlug(t *testing.T) {
@@ -30,6 +34,13 @@ func TestParseInvoiceSlug(t *testing.T) {
 		{"https://t.me/$", "", false},
 		{"https://t.me/invoice/", "", false},
 		{"https://t.me/$AbC/extra", "", false},
+		{"https://t.me/invoice/AbC#frag", "AbC", true},
+		{"$AbC/extra", "", false},
+		{"$AbC?x=1", "", false},
+		{"$./..", "", false},
+		{"$Ab C", "", false},
+		{"tg://invoice?slug=AbC%2FDEF", "", false},
+		{"tg://invoice?slug=AbC%23x", "", false},
 		{"https://t.me/mybot", "", false},
 		{"https://example.com/$AbC", "", false},
 		{"tg://resolve?domain=mybot", "", false},
@@ -161,5 +172,47 @@ func TestInvoiceResultText(t *testing.T) {
 	want := "invoice \"Order #12\" from @shopbot (stars, form 77)\n2 items\n  Guide: 10 XTR\n  Template: 5 XTR\ntotal: 15 XTR\n"
 	if buf.String() != want {
 		t.Errorf("text =\n%s\nwant\n%s", buf.String(), want)
+	}
+}
+
+func TestNewInvoiceResultRefusesAnUnknownForm(t *testing.T) {
+	if _, err := newInvoiceResult(nil); err == nil {
+		t.Error("an unknown form should be an error")
+	}
+}
+
+func TestReadInvoiceMessageAsksOnlyForTheForm(t *testing.T) {
+	store, err := peercache.Open(filepath.Join(t.TempDir(), "peers.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got tg.InputInvoiceClass
+	api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		switch r := req.(type) {
+		case *tg.UsersGetUsersRequest:
+			return &tg.UserClassVector{Elems: []tg.UserClass{&tg.User{ID: 42, Self: true, AccessHash: 1}}}, nil
+		case *tg.PaymentsGetPaymentFormRequest:
+			got = r.Invoice
+			return starsForm(), nil
+		}
+		// Anything else, a call that pays included, fails the test.
+		return nil, errors.Errorf("unexpected request %T", req)
+	})
+	m := &peerManager{Manager: peers.Options{Storage: store}.Build(api), store: store}
+
+	// "me" is a documented <peer>; the username resolver alone refuses it.
+	res, err := readInvoiceMessage(context.Background(), api, m, "me", 4270)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, ok := got.(*tg.InputInvoiceMessage)
+	if !ok || msg.MsgID != 4270 {
+		t.Fatalf("invoice = %#v, want message 4270", got)
+	}
+	if _, ok := msg.Peer.(*tg.InputPeerSelf); !ok {
+		t.Errorf("peer = %#v, want this account", msg.Peer)
+	}
+	if res.Peer == nil || res.Peer.ID != 42 || res.MessageID != 4270 || res.Total != 15 {
+		t.Errorf("result %+v", res)
 	}
 }

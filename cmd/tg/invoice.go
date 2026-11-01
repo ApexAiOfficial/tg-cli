@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/go-faster/errors"
@@ -79,21 +80,33 @@ func (r invoiceResult) MarshalText(w io.Writer) error {
 	return err
 }
 
+// invoiceSlugRE is what an invoice slug may hold, as Telegram's clients accept it.
+var invoiceSlugRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // parseInvoiceSlug returns the slug of an invoice link: t.me/$<slug>,
 // t.me/invoice/<slug> (with or without https://, or on telegram.me),
-// tg://invoice?slug=<slug>, or a bare $<slug>. ok is false for anything else.
+// tg://invoice?slug=<slug>, or a bare $<slug>. ok is false for anything else,
+// including a slug with a path, a query or a fragment in it.
 func parseInvoiceSlug(arg string) (slug string, ok bool) {
-	arg = strings.TrimSpace(arg)
+	slug = invoiceLinkSlug(strings.TrimSpace(arg))
+	if !invoiceSlugRE.MatchString(slug) {
+		return "", false
+	}
+	return slug, true
+}
+
+// invoiceLinkSlug returns what stands in the slug's place in an invoice link,
+// unvalidated, or "" when arg is not an invoice link.
+func invoiceLinkSlug(arg string) string {
 	if s, found := strings.CutPrefix(arg, "$"); found {
-		return s, s != ""
+		return s
 	}
 	if strings.HasPrefix(arg, "tg:") {
 		u, err := url.Parse(arg)
 		if err != nil || u.Host != "invoice" {
-			return "", false
+			return ""
 		}
-		s := u.Query().Get("slug")
-		return s, s != ""
+		return u.Query().Get("slug")
 	}
 	rest := arg
 	for _, scheme := range []string{"https://", "http://"} {
@@ -104,17 +117,17 @@ func parseInvoiceSlug(arg string) (slug string, ok bool) {
 	}
 	host, path, found := strings.Cut(rest, "/")
 	if !found || (host != "t.me" && host != "telegram.me") {
-		return "", false
+		return ""
 	}
+	path, _, _ = strings.Cut(path, "#")
 	path, _, _ = strings.Cut(path, "?")
-	s, found := strings.CutPrefix(path, "$")
-	if !found {
-		s, found = strings.CutPrefix(path, "invoice/")
+	if s, found := strings.CutPrefix(path, "$"); found {
+		return s
 	}
-	if !found || s == "" || strings.Contains(s, "/") {
-		return "", false
+	if s, found := strings.CutPrefix(path, "invoice/"); found {
+		return s
 	}
-	return s, true
+	return ""
 }
 
 // botRef finds the bot that issued a form among the form's users.
@@ -172,6 +185,21 @@ func getInvoiceForm(ctx context.Context, api *tg.Client, invoice tg.InputInvoice
 	return newInvoiceResult(form)
 }
 
+// readInvoiceMessage asks for the form of an invoice message in a chat.
+func readInvoiceMessage(ctx context.Context, api *tg.Client, m *peerManager, peerArg string, msgID int) (invoiceResult, error) {
+	p, err := resolveManagedPeer(ctx, m, peerArg)
+	if err != nil {
+		return invoiceResult{}, err
+	}
+	res, err := getInvoiceForm(ctx, api, &tg.InputInvoiceMessage{Peer: p.InputPeer(), MsgID: msgID})
+	if err != nil {
+		return invoiceResult{}, err
+	}
+	ref := describeManagedPeer(p)
+	res.Peer, res.MessageID = &ref, msgID
+	return res, nil
+}
+
 func (a *app) newInvoiceCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "invoice (<link> | <peer> <message-id>)",
@@ -222,16 +250,10 @@ Amounts are in the currency's smallest unit: whole Stars for XTR, cents for USD.
 				if err != nil {
 					return err
 				}
-				p, err := m.Resolve(ctx, args[0])
+				res, err := readInvoiceMessage(ctx, api, m, args[0], msgID)
 				if err != nil {
 					return err
 				}
-				res, err := getInvoiceForm(ctx, api, &tg.InputInvoiceMessage{Peer: p.InputPeer(), MsgID: msgID})
-				if err != nil {
-					return err
-				}
-				ref := describeManagedPeer(p)
-				res.Peer, res.MessageID = &ref, msgID
 				return a.printer.Emit(res)
 			})
 		},
