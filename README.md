@@ -107,7 +107,8 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
 - **Diagnostics:** `doctor` checks config, credentials, session, peer cache, connection
   and login, with a fix hint for each failure (`--offline` skips the network).
 - **Bots:** `click` (press inline/keyboard buttons), `start-bot` (deep-link start),
-  `bot-info`, `webapp` (open a Mini App and get its signed launch data), and `--wait` reply collection on
+  `bot-info`, `webapp` (open a Mini App and get its signed launch data), `invoice` (read an
+  invoice's payment form without paying), and `--wait` reply collection on
   `send`/`reply`/`click`/`start-bot`/`upload`.
 - **Media:** `upload` (with `--type` video/audio/voice/gif/sticker), `album`, `download`,
   `stickers`.
@@ -131,6 +132,7 @@ a person would and check what actually happens:
 ```console
 $ tg bot-info @mybot                                  # descriptions, command menu, menu button
 $ tg webapp @mybot --out session.json                 # open its Mini App: real signed launch data, owner-only file
+$ tg invoice 'https://t.me/$AbCdEf123' -o json       # what the payment sheet would charge; pays nothing
 $ tg send --peer @mybot /start --wait 30s -o json     # send, then collect replies until the bot settles
 $ tg start-bot @mybot ref_42 --wait 20s               # deep link: t.me/mybot?start=ref_42
 $ tg click @mybot --text "Settings" --wait 15s -o json  # press an inline button, get the answer + edits
