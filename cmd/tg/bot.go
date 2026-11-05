@@ -159,6 +159,11 @@ can then be exercised with ` + "`tg send --peer <bot> /<command> --wait 30s`.",
 	}
 }
 
+// isTelegramLinkHost reports whether host serves Telegram's public links.
+func isTelegramLinkHost(host string) bool {
+	return host == "t.me" || host == "telegram.me"
+}
+
 // parseBotLink parses a bot deep link such as https://t.me/mybot?start=abc or
 // tg://resolve?domain=mybot&start=abc into "@mybot" and the start parameter.
 func parseBotLink(s string) (bot, param string, ok bool) {
@@ -176,7 +181,7 @@ func parseBotLink(s string) (bot, param string, ok bool) {
 	switch {
 	case u.Scheme == "tg" && u.Host == "resolve":
 		bot = u.Query().Get("domain")
-	case (u.Scheme == "https" || u.Scheme == "http") && (u.Host == "t.me" || u.Host == "telegram.me"):
+	case (u.Scheme == "https" || u.Scheme == "http") && isTelegramLinkHost(u.Host):
 		bot = strings.Trim(u.Path, "/")
 	default:
 		return "", "", false

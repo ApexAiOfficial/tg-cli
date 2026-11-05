@@ -74,9 +74,9 @@ func newRequestPeerItem(v *tg.KeyboardButtonRequestPeer) *requestPeerItem {
 	item := &requestPeerItem{ButtonID: v.ButtonID, MaxQuantity: v.MaxQuantity}
 	switch pt := v.PeerType.(type) {
 	case *tg.RequestPeerTypeUser:
-		item.Kind = "user"
+		item.Kind = peerUser
 	case *tg.RequestPeerTypeChat:
-		item.Kind = "chat"
+		item.Kind = peerChat
 	case *tg.RequestPeerTypeBroadcast:
 		item.Kind = "broadcast"
 	case *tg.RequestPeerTypeCreateBot:
