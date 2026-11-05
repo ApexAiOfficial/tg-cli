@@ -217,3 +217,16 @@ func TestBotInfoManagedFields(t *testing.T) {
 		t.Errorf("result = %+v", res)
 	}
 }
+
+func TestPeerCacheFileIsPerSessionKind(t *testing.T) {
+	a := &app{configPath: filepath.Join(t.TempDir(), "gotd.cli.yaml")}
+	user := &accountState{label: "default", acc: Account{BotToken: "1:x"}}
+	bot := &accountState{label: "default", acc: Account{BotToken: "1:x"}, kind: authBot}
+	u, b := a.peerCacheFile(user), a.peerCacheFile(bot)
+	if u == b {
+		t.Fatalf("user and bot sessions share the peer cache %s", u)
+	}
+	if !strings.Contains(filepath.Base(u), ".user.") || !strings.Contains(filepath.Base(b), ".bot.") {
+		t.Errorf("paths = %s, %s", u, b)
+	}
+}

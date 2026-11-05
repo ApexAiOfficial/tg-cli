@@ -109,8 +109,9 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
 - **Bots:** `click` (press inline/keyboard buttons), `start-bot` (deep-link start),
   `bot-info`, `webapp` (open a Mini App and get its signed launch data), `invoice` (read an
   invoice's payment form without paying), `create-bot` (create a bot, optionally managed by
-  another bot, from flags or a `t.me/newbot/...` link), `bot-token` (save an owned bot's
-  token to a 0600 file, or rotate it), `bot-access` (who may use a bot), and `--wait` reply
+  another bot, from flags or a `t.me/newbot/...` link), `bot-token` (as a manager bot: save a
+  managed bot's token to a 0600 file, or rotate it), `bot-access` (as a manager bot: who may
+  use a managed bot), and `--wait` reply
   collection on `send`/`reply`/`click`/`start-bot`/`upload`. `click` also answers a bot's
   "create a bot" button (managed bots).
 - **Media:** `upload` (with `--type` photo/video/audio/voice/gif/sticker), `album`, `download`,
