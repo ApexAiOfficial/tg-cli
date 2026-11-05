@@ -49,6 +49,9 @@ type accountState struct {
 	label    string
 	acc      Account
 	resolver dcs.Resolver
+	// kind is the session the current command runs in (user or bot); the
+	// peer cache is per session, because access hashes are per account.
+	kind authKind
 }
 
 // app holds shared state and the values of the global (persistent) flags.
@@ -326,6 +329,7 @@ func (a *app) run(
 		if err := a.activate(label, multi); err != nil {
 			return err
 		}
+		a.active.kind = rp.auth
 		if err := a.runOne(ctx, rp, f); err != nil {
 			if multi {
 				return errors.Wrapf(err, "account %q", label)

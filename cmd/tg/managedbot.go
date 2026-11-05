@@ -20,10 +20,13 @@ import (
 // Managed bots (Bot API 10.0, MTProto bots.createBot): a user creates a bot
 // that another bot, the manager, may control. The manager needs "Bot
 // Management Mode" switched on in @BotFather; it then receives a managed_bot
-// update and can fetch or replace the new bot's token. These commands act as
-// the creating user, so a manager bot's onboarding flow can be tested end to
-// end, and let the account read or rotate the token of a bot it owns without
-// the token ever reaching stdout.
+// update and can fetch or replace the new bot's token.
+//
+// create-bot (and tg click on a create-bot button) act as the creating user.
+// bot-token and bot-access act as the manager: Telegram serves
+// bots.exportBotToken and bots.get/editAccessSettings only to bots and answers
+// a user account with USER_BOT_REQUIRED, so those two run in the account's bot
+// session (bot_token in the config).
 
 // botUsernameRe is Telegram's rule for bot usernames: 5-32 characters,
 // letters, digits and underscores, starting with a letter, ending in "bot".
@@ -281,13 +284,19 @@ func (a *app) newBotTokenCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:     "bot-token <bot>",
-		Short:   "Save a bot's token to an owner-only file",
+		Short:   "Save a managed bot's token to an owner-only file (as its manager)",
 		GroupID: groupMessaging,
-		Long: `Export the token of a bot this account owns (bots.exportBotToken) into a new
-file created with mode 0600. The token is never printed, so it stays out of
-terminals, logs and agent transcripts. The file must not exist yet.
+		Long: `Export the token of a bot managed by this account's bot (bots.exportBotToken,
+the MTProto side of getManagedBotToken) into a new file created with mode 0600.
+The token is never printed, so it stays out of terminals, logs and agent
+transcripts. The file must not exist yet.
 
---revoke replaces the token: the old one stops working at once, so it needs --yes.`,
+Runs in the account's bot session: configure the manager bot's token as
+bot_token (Telegram answers a user session with USER_BOT_REQUIRED). The bot's
+owner reads its token in @BotFather (/token) instead.
+
+--revoke replaces the token (replaceManagedBotToken): the old one stops working
+at once, so it needs --yes.`,
 		Example: `  tg bot-token @MyShopBot --out ./shop.token
   tg bot-token @MyShopBot --out ./shop.token --revoke --yes`,
 		Args:              cobra.ExactArgs(1),
@@ -299,7 +308,7 @@ terminals, logs and agent transcripts. The file must not exist yet.
 			if revoke && !yes {
 				return usageError{errors.New("--revoke stops the current token at once; pass --yes to confirm")}
 			}
-			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
+			return a.run(cmd.Context(), runParams{auth: authBot}, func(ctx context.Context, api *tg.Client) error {
 				m, err := a.manager(api)
 				if err != nil {
 					return err
@@ -431,11 +440,14 @@ func (a *app) newBotAccessCmd() *cobra.Command {
 	var o botAccessOptions
 	cmd := &cobra.Command{
 		Use:     "bot-access <bot>",
-		Short:   "Show or change who may use a bot",
+		Short:   "Show or change who may use a managed bot (as its manager)",
 		GroupID: groupMessaging,
-		Long: `Show a bot's access settings (bots.getAccessSettings). With --restrict, only
-the bot's owner and up to 10 --user accounts may use it; --open lets everyone
-use it again (bots.editAccessSettings).`,
+		Long: `Show a managed bot's access settings (bots.getAccessSettings). With --restrict,
+only the bot's owner and up to 10 --user accounts may use it; --open lets
+everyone use it again (bots.editAccessSettings).
+
+Runs in the account's bot session, as the manager bot (Telegram answers a user
+session with USER_BOT_REQUIRED).`,
 		Example: `  tg bot-access @MyShopBot
   tg bot-access @MyShopBot --restrict --user @alice --user @bob
   tg bot-access @MyShopBot --open`,
@@ -445,7 +457,7 @@ use it again (bots.editAccessSettings).`,
 			if err := o.validate(); err != nil {
 				return err
 			}
-			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
+			return a.run(cmd.Context(), runParams{auth: authBot}, func(ctx context.Context, api *tg.Client) error {
 				return a.runBotAccess(ctx, api, args[0], o)
 			})
 		},
