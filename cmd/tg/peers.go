@@ -113,10 +113,16 @@ func (a *app) manager(api *tg.Client) (*peerManager, error) {
 	return a.managerFor(api, a.active)
 }
 
+// peerCacheFile is the access-hash cache of an account state's session. A bot
+// session and a user session of one account label must not share it: Telegram
+// access hashes are per account.
+func (a *app) peerCacheFile(st *accountState) string {
+	return st.acc.peerCachePath(filepath.Dir(a.configPath), st.label, st.kind.String())
+}
+
 // managerFor builds a peerManager for a specific account state.
 func (a *app) managerFor(api *tg.Client, st *accountState) (*peerManager, error) {
-	path := st.acc.peerCachePath(filepath.Dir(a.configPath), st.label, authUser.String())
-	store, err := peercache.Open(path)
+	store, err := peercache.Open(a.peerCacheFile(st))
 	if err != nil {
 		return nil, errors.Wrap(err, "open peer cache")
 	}

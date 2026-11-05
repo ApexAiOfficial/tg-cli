@@ -208,6 +208,7 @@ Bots this account owns, and managed bots (Bot API 10.0):
 tg create-bot "https://t.me/newbot/MyManagerBot/MyShop_bot?name=My+Shop"  # as the link does; .data.bot
 tg create-bot --name "My Shop" --username MyShop_bot --manager @MyManagerBot
 tg create-bot --username MyShop_bot --check        # is the username free?
+# As the manager bot (an account whose bot_token is the manager's; users get USER_BOT_REQUIRED):
 tg bot-token @MyShop_bot --out ./shop.token         # owner-only file; never printed
 tg bot-token @MyShop_bot --out ./new.token --revoke --yes   # rotate: the old token stops working
 tg bot-access @MyShop_bot                           # who may use it (--restrict --user @a / --open)
