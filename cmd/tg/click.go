@@ -225,7 +225,8 @@ func answerCreateBotRequest(
 	}
 	share.SetMsgID(msgID)
 	if _, err := api.MessagesSendBotRequestedPeer(ctx, share); err != nil {
-		return created, errors.Wrapf(err, "created @%s (id %d) but could not share it: messages.sendBotRequestedPeer", created.Username, created.ID)
+		return created, errors.Wrapf(err,
+			"created @%s (id %d) but could not share it: messages.sendBotRequestedPeer", created.Username, created.ID)
 	}
 	return created, nil
 }

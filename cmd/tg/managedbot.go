@@ -35,7 +35,9 @@ func validateNewBot(name, username string) error {
 		return usageError{errors.New("the bot's name must be 1-64 characters")}
 	}
 	if !botUsernameRe.MatchString(username) {
-		return usageError{errors.Errorf("%q is not a valid bot username: 5-32 letters, digits or underscores, starting with a letter and ending in \"bot\"", username)}
+		return usageError{errors.Errorf(
+			"%q is not a valid bot username: 5-32 letters, digits or underscores, starting with a letter and ending in \"bot\"",
+			username)}
 	}
 	return nil
 }
@@ -57,7 +59,7 @@ func parseNewBotLink(s string) (newBotLink, bool) {
 		raw = "https://" + raw
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || (u.Host != "t.me" && u.Host != "telegram.me") {
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || !isTelegramLinkHost(u.Host) {
 		return newBotLink{}, false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
@@ -113,11 +115,74 @@ func createBot(ctx context.Context, api *tg.Client, name, username string, manag
 	return u, nil
 }
 
-func (a *app) newCreateBotCmd() *cobra.Command {
+// createBotOptions are the inputs of `tg create-bot`.
+type createBotOptions struct {
+	name, username, manager string
+	checkOnly, viaDeeplink  bool
+}
+
+// resolve applies a t.me/newbot link (flags win over its suggestions) and validates.
+func (o *createBotOptions) resolve(args []string) error {
+	if len(args) == 1 {
+		link, ok := parseNewBotLink(args[0])
+		if !ok {
+			return usageError{errors.Errorf("%q is not a t.me/newbot/<manager>/<username> link", args[0])}
+		}
+		o.viaDeeplink = true
+		if o.manager == "" {
+			o.manager = link.Manager
+		}
+		if o.username == "" {
+			o.username = link.Username
+		}
+		if o.name == "" {
+			o.name = link.Name
+		}
+	}
+	if o.checkOnly {
+		return validateNewBot("x", o.username)
+	}
+	return validateNewBot(o.name, o.username)
+}
+
+// runCreateBot checks the username or creates the bot.
+func (a *app) runCreateBot(ctx context.Context, api *tg.Client, o createBotOptions) error {
+	if o.checkOnly {
+		free, err := api.BotsCheckUsername(ctx, o.username)
+		if err != nil && !isUsernameTaken(err) {
+			return errors.Wrap(err, "bots.checkUsername")
+		}
+		return a.printer.Emit(usernameCheckResult{Username: o.username, Available: err == nil && free})
+	}
+	m, err := a.manager(api)
+	if err != nil {
+		return err
+	}
 	var (
-		name, username, manager string
-		checkOnly               bool
+		mgrInput tg.InputUserClass
+		mgrRef   *peerRef
 	)
+	if o.manager != "" {
+		mgr, err := resolveBot(ctx, m, o.manager)
+		if err != nil {
+			return err
+		}
+		mgrInput = mgr.InputUser()
+		ref := describeManagedPeer(mgr)
+		mgrRef = &ref
+	}
+	u, err := createBot(ctx, api, o.name, o.username, mgrInput, o.viaDeeplink)
+	if err != nil {
+		return err
+	}
+	if err := m.Apply(ctx, []tg.UserClass{u}, nil); err != nil {
+		return errors.Wrap(err, "cache new bot")
+	}
+	return a.printer.Emit(createdBotResult{Bot: userRef(u), Manager: mgrRef, ViaDeeplink: o.viaDeeplink})
+}
+
+func (a *app) newCreateBotCmd() *cobra.Command {
+	var o createBotOptions
 	cmd := &cobra.Command{
 		Use:     "create-bot [newbot-link]",
 		Short:   "Create a bot, optionally managed by another bot",
@@ -138,71 +203,19 @@ asks Telegram whether the username is free.`,
   tg create-bot --username MyShopBot --check`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			viaDeeplink := false
-			if len(args) == 1 {
-				link, ok := parseNewBotLink(args[0])
-				if !ok {
-					return usageError{errors.Errorf("%q is not a t.me/newbot/<manager>/<username> link", args[0])}
-				}
-				viaDeeplink = true
-				if manager == "" {
-					manager = link.Manager
-				}
-				if username == "" {
-					username = link.Username
-				}
-				if name == "" {
-					name = link.Name
-				}
-			}
-			if checkOnly {
-				if !botUsernameRe.MatchString(username) {
-					return validateNewBot("x", username)
-				}
-			} else if err := validateNewBot(name, username); err != nil {
+			if err := o.resolve(args); err != nil {
 				return err
 			}
 			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
-				if checkOnly {
-					free, err := api.BotsCheckUsername(ctx, username)
-					if err != nil && !isUsernameTaken(err) {
-						return errors.Wrap(err, "bots.checkUsername")
-					}
-					return a.printer.Emit(usernameCheckResult{Username: username, Available: err == nil && free})
-				}
-				m, err := a.manager(api)
-				if err != nil {
-					return err
-				}
-				var (
-					mgrInput tg.InputUserClass
-					mgrRef   *peerRef
-				)
-				if manager != "" {
-					mgr, err := resolveBot(ctx, m, manager)
-					if err != nil {
-						return err
-					}
-					mgrInput = mgr.InputUser()
-					ref := describeManagedPeer(mgr)
-					mgrRef = &ref
-				}
-				u, err := createBot(ctx, api, name, username, mgrInput, viaDeeplink)
-				if err != nil {
-					return err
-				}
-				if err := m.Apply(ctx, []tg.UserClass{u}, nil); err != nil {
-					return errors.Wrap(err, "cache new bot")
-				}
-				return a.printer.Emit(createdBotResult{Bot: userRef(u), Manager: mgrRef, ViaDeeplink: viaDeeplink})
+				return a.runCreateBot(ctx, api, o)
 			})
 		},
 	}
 	fs := cmd.Flags()
-	fs.StringVar(&name, "name", "", "the new bot's display name (1-64 characters)")
-	fs.StringVar(&username, "username", "", "the new bot's username, ending in \"bot\"")
-	fs.StringVar(&manager, "manager", "", "the bot that will manage the new bot")
-	fs.BoolVar(&checkOnly, "check", false, "only check whether the username is available")
+	fs.StringVar(&o.name, "name", "", "the new bot's display name (1-64 characters)")
+	fs.StringVar(&o.username, "username", "", "the new bot's username, ending in \"bot\"")
+	fs.StringVar(&o.manager, "manager", "", "the bot that will manage the new bot")
+	fs.BoolVar(&o.checkOnly, "check", false, "only check whether the username is available")
 	return cmd
 }
 
@@ -348,11 +361,74 @@ func newBotAccessResult(bot peerRef, s *tg.BotsAccessSettings) botAccessResult {
 	return res
 }
 
+// botAccessOptions are the inputs of `tg bot-access`.
+type botAccessOptions struct {
+	restrict, open bool
+	users          []string
+}
+
+// validate checks the flag combination before connecting.
+func (o botAccessOptions) validate() error {
+	switch {
+	case o.restrict && o.open:
+		return usageError{errors.New("use only one of --restrict and --open")}
+	case len(o.users) > 10:
+		return usageError{errors.New("at most 10 --user accounts besides the owner")}
+	case len(o.users) > 0 && !o.restrict:
+		return usageError{errors.New("--user needs --restrict")}
+	}
+	return nil
+}
+
+// resolveInputUsers resolves user arguments for bots.editAccessSettings.
+func resolveInputUsers(ctx context.Context, m *peerManager, args []string) ([]tg.InputUserClass, error) {
+	out := make([]tg.InputUserClass, 0, len(args))
+	for _, arg := range args {
+		p, err := resolveManagedPeer(ctx, m, arg)
+		if err != nil {
+			return nil, err
+		}
+		u, ok := p.(interface{ InputUser() tg.InputUserClass })
+		if !ok {
+			return nil, usageError{errors.Errorf("%s is not a user", arg)}
+		}
+		out = append(out, u.InputUser())
+	}
+	return out, nil
+}
+
+// runBotAccess applies --restrict/--open, then reports the settings.
+func (a *app) runBotAccess(ctx context.Context, api *tg.Client, botArg string, o botAccessOptions) error {
+	m, err := a.manager(api)
+	if err != nil {
+		return err
+	}
+	bot, err := resolveBot(ctx, m, botArg)
+	if err != nil {
+		return err
+	}
+	if o.restrict || o.open {
+		req := &tg.BotsEditAccessSettingsRequest{Restricted: o.restrict, Bot: bot.InputUser()}
+		if len(o.users) > 0 {
+			add, err := resolveInputUsers(ctx, m, o.users)
+			if err != nil {
+				return err
+			}
+			req.SetAddUsers(add)
+		}
+		if _, err := api.BotsEditAccessSettings(ctx, req); err != nil {
+			return errors.Wrap(err, "bots.editAccessSettings")
+		}
+	}
+	s, err := api.BotsGetAccessSettings(ctx, bot.InputUser())
+	if err != nil {
+		return errors.Wrap(err, "bots.getAccessSettings")
+	}
+	return a.printer.Emit(newBotAccessResult(describeManagedPeer(bot), s))
+}
+
 func (a *app) newBotAccessCmd() *cobra.Command {
-	var (
-		restrict, open bool
-		users          []string
-	)
+	var o botAccessOptions
 	cmd := &cobra.Command{
 		Use:     "bot-access <bot>",
 		Short:   "Show or change who may use a bot",
@@ -366,55 +442,17 @@ use it again (bots.editAccessSettings).`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: peerArgCompletion,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			switch {
-			case restrict && open:
-				return usageError{errors.New("use only one of --restrict and --open")}
-			case len(users) > 10:
-				return usageError{errors.New("at most 10 --user accounts besides the owner")}
-			case len(users) > 0 && !restrict:
-				return usageError{errors.New("--user needs --restrict")}
+			if err := o.validate(); err != nil {
+				return err
 			}
 			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
-				m, err := a.manager(api)
-				if err != nil {
-					return err
-				}
-				bot, err := resolveBot(ctx, m, args[0])
-				if err != nil {
-					return err
-				}
-				if restrict || open {
-					req := &tg.BotsEditAccessSettingsRequest{Restricted: restrict, Bot: bot.InputUser()}
-					if len(users) > 0 {
-						add := make([]tg.InputUserClass, 0, len(users))
-						for _, arg := range users {
-							p, err := resolveManagedPeer(ctx, m, arg)
-							if err != nil {
-								return err
-							}
-							u, ok := p.(interface{ InputUser() tg.InputUserClass })
-							if !ok {
-								return usageError{errors.Errorf("%s is not a user", arg)}
-							}
-							add = append(add, u.InputUser())
-						}
-						req.SetAddUsers(add)
-					}
-					if _, err := api.BotsEditAccessSettings(ctx, req); err != nil {
-						return errors.Wrap(err, "bots.editAccessSettings")
-					}
-				}
-				s, err := api.BotsGetAccessSettings(ctx, bot.InputUser())
-				if err != nil {
-					return errors.Wrap(err, "bots.getAccessSettings")
-				}
-				return a.printer.Emit(newBotAccessResult(describeManagedPeer(bot), s))
+				return a.runBotAccess(ctx, api, args[0], o)
 			})
 		},
 	}
 	fs := cmd.Flags()
-	fs.BoolVar(&restrict, "restrict", false, "allow only the owner and the --user accounts")
-	fs.BoolVar(&open, "open", false, "allow everyone again")
-	fs.StringArrayVar(&users, "user", nil, "account allowed besides the owner (repeatable, with --restrict)")
+	fs.BoolVar(&o.restrict, "restrict", false, "allow only the owner and the --user accounts")
+	fs.BoolVar(&o.open, "open", false, "allow everyone again")
+	fs.StringArrayVar(&o.users, "user", nil, "account allowed besides the owner (repeatable, with --restrict)")
 	return cmd
 }
