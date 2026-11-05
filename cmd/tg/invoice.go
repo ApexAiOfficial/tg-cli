@@ -116,7 +116,7 @@ func invoiceLinkSlug(arg string) string {
 		}
 	}
 	host, path, found := strings.Cut(rest, "/")
-	if !found || (host != "t.me" && host != "telegram.me") {
+	if !found || !isTelegramLinkHost(host) {
 		return ""
 	}
 	path, _, _ = strings.Cut(path, "#")

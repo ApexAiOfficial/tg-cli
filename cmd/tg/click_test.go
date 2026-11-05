@@ -27,7 +27,7 @@ func TestPressCallbackButton(t *testing.T) {
 	})
 	btn := keyboardButtons(testInlineMarkup())[0] // "📋 Menu", data "menu"
 
-	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, btn)
+	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, btn, pressOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestPressCallbackButtonUnanswered(t *testing.T) {
 		return nil, tgerr.New(400, "BOT_RESPONSE_TIMEOUT")
 	})
 	btn := keyboardButtons(testInlineMarkup())[0]
-	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, btn)
+	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, btn, pressOptions{})
 	if err != nil {
 		t.Fatalf("an unanswered callback is not an error: %v", err)
 	}
@@ -61,20 +61,20 @@ func TestPressButtonWithoutRPC(t *testing.T) {
 		return nil, errors.Errorf("no RPC expected, got %T", req)
 	})
 	docs := keyboardButtons(testInlineMarkup())[2]
-	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, docs)
+	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, docs, pressOptions{})
 	if err != nil || res.Button.URL != "https://example.com" {
 		t.Errorf("url button: %+v, %v", res, err)
 	}
 
 	share := keyboardButtons(testInlineMarkup())[3]
-	if _, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, share); err == nil {
+	if _, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, share, pressOptions{}); err == nil {
 		t.Error("switch_inline buttons should be reported as unsupported")
 	}
 
 	locked := keyboardButtons(&tg.ReplyInlineMarkup{Rows: []tg.KeyboardButtonRow{{Buttons: []tg.KeyboardButtonClass{
 		&tg.KeyboardButtonCallback{Text: "Transfer", Data: []byte("x"), RequiresPassword: true},
 	}}}})[0]
-	if _, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, locked); err == nil {
+	if _, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, locked, pressOptions{}); err == nil {
 		t.Error("password-protected buttons should be refused")
 	}
 }
@@ -93,7 +93,7 @@ func TestPressReplyKeyboardButtonSendsText(t *testing.T) {
 		&tg.KeyboardButton{Text: "Yes"},
 	}}}})[0]
 
-	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, btn)
+	res, err := pressButton(context.Background(), api, message.NewSender(api).To(botPeer()), botPeer(), 42, btn, pressOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

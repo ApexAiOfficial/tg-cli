@@ -129,6 +129,10 @@ tg click @mybot --text "Settings" --wait 15s -o json   # callback: .data.answer 
 tg click @mybot 4242 --data "page:2" --wait 15s -o json
 tg click @mybot --row 2 --col 1 --wait 15s             # reply keyboard: sends its label
 
+# 4b. A "create a bot" button (Bot API request_managed_bot) creates the bot,
+#     managed by the asking bot, and shares it; the token is never printed
+tg click @managerbot --text "Create my store bot" --bot-username MyShop_bot --wait 20s -o json
+
 # 5. Multi-step flows: chain calls; answer a prompt by replying to it if needed
 tg reply @mybot 4250 "Berlin" --wait 20s -o json
 
@@ -197,6 +201,23 @@ build-time app credentials), so `tg accounts add` is only needed for custom app
 credentials, a bot token, or a per-account proxy.
 
 ## Bots
+
+Bots this account owns, and managed bots (Bot API 10.0):
+
+```bash
+tg create-bot "https://t.me/newbot/MyManagerBot/MyShop_bot?name=My+Shop"  # as the link does; .data.bot
+tg create-bot --name "My Shop" --username MyShop_bot --manager @MyManagerBot
+tg create-bot --username MyShop_bot --check        # is the username free?
+tg bot-token @MyShop_bot --out ./shop.token         # owner-only file; never printed
+tg bot-token @MyShop_bot --out ./new.token --revoke --yes   # rotate: the old token stops working
+tg bot-access @MyShop_bot                           # who may use it (--restrict --user @a / --open)
+tg bot-info @MyManagerBot -o json | jq .data.can_manage_bots   # Bot Management Mode on?
+```
+
+`can_manage_bots` is switched on only in @BotFather's Mini App (bot settings,
+"Bot Management Mode"); the chat commands cannot do it.
+
+Acting as a bot:
 
 ```bash
 tg init --token <bot-token>
