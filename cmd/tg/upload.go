@@ -64,7 +64,7 @@ func (r uploadResult) MarshalText(w io.Writer) error {
 
 // documentTypes are the allowed values of the --type flag.
 func documentTypes() []string {
-	return []string{fileKindFile, fileKindVideo, fileKindAudio, fileKindVoice, "gif", fileKindSticker}
+	return []string{fileKindFile, fileKindPhoto, fileKindVideo, fileKindAudio, fileKindVoice, "gif", fileKindSticker}
 }
 
 func detectMIME(f io.ReadSeeker) (*mimetype.MIME, error) {
@@ -86,6 +86,11 @@ func prepareFile(
 	option []styling.StyledTextOption,
 	fileName, mime string,
 ) message.MediaOption {
+	if uf.docType.value == fileKindPhoto {
+		// A compressed photo, as Telegram's apps send pictures; some bots
+		// (for example @BotFather's /setuserpic) accept only this.
+		return message.UploadedPhoto(fileInput, option...)
+	}
 	file := message.UploadedDocument(fileInput, option...)
 	if uf.filename != "" {
 		file = file.Filename(uf.filename)
@@ -260,6 +265,9 @@ With --wait the peer's response to the upload is collected, as for ` + "`tg send
 
   # Upload as a video to a chat
   tg upload --peer @me --type video clip.mp4
+
+  # Send a picture as a photo rather than a file
+  tg upload --peer @BotFather --type photo logo.png
 
   # Upload with a caption
   tg upload --peer @durov --message "here you go" photo.jpg
