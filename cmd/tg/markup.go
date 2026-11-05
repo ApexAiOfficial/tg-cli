@@ -52,6 +52,42 @@ type buttonItem struct {
 	Query            string `json:"query,omitempty"`
 	CopyText         string `json:"copy_text,omitempty"`
 	RequiresPassword bool   `json:"requires_password,omitempty"`
+	// RequestPeer describes a request_peer button: what it asks the user to
+	// pick or, for "create_bot", to create.
+	RequestPeer *requestPeerItem `json:"request_peer,omitempty"`
+}
+
+// requestPeerItem is the request of a keyboardButtonRequestPeer button.
+type requestPeerItem struct {
+	ButtonID int `json:"button_id"`
+	// Kind is "user", "chat", "broadcast" or "create_bot".
+	Kind string `json:"kind"`
+	// BotManaged: the bot to create will be managed by the bot that asks.
+	BotManaged        bool   `json:"bot_managed,omitempty"`
+	SuggestedName     string `json:"suggested_name,omitempty"`
+	SuggestedUsername string `json:"suggested_username,omitempty"`
+	MaxQuantity       int    `json:"max_quantity,omitempty"`
+}
+
+// newRequestPeerItem converts a request_peer button's request.
+func newRequestPeerItem(v *tg.KeyboardButtonRequestPeer) *requestPeerItem {
+	item := &requestPeerItem{ButtonID: v.ButtonID, MaxQuantity: v.MaxQuantity}
+	switch pt := v.PeerType.(type) {
+	case *tg.RequestPeerTypeUser:
+		item.Kind = "user"
+	case *tg.RequestPeerTypeChat:
+		item.Kind = "chat"
+	case *tg.RequestPeerTypeBroadcast:
+		item.Kind = "broadcast"
+	case *tg.RequestPeerTypeCreateBot:
+		item.Kind = "create_bot"
+		item.BotManaged = pt.BotManaged
+		item.SuggestedName = pt.SuggestedName
+		item.SuggestedUsername = pt.SuggestedUsername
+	default:
+		item.Kind = peerUnknown
+	}
+	return item
 }
 
 // newReplyMarkup converts a message's reply markup; nil when there is none.
@@ -110,6 +146,8 @@ func newButtonItem(b tg.KeyboardButtonClass) buttonItem {
 		item.Query = v.Query
 	case *tg.KeyboardButtonCopy:
 		item.CopyText = v.CopyText
+	case *tg.KeyboardButtonRequestPeer:
+		item.RequestPeer = newRequestPeerItem(v)
 	}
 	return item
 }

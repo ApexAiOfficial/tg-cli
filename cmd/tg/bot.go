@@ -44,6 +44,11 @@ type botInfoResult struct {
 	CanJoinGroups         bool   `json:"can_join_groups"`
 	ReadsAllGroupMessages bool   `json:"reads_all_group_messages"`
 	ActiveUsers           int    `json:"active_users,omitempty"`
+	// CanManageBots is set when the bot has Bot Management Mode on: users may
+	// create bots it manages (tg create-bot --manager).
+	CanManageBots bool `json:"can_manage_bots,omitempty"`
+	// ManagerID is the bot that manages this bot, if any.
+	ManagerID int64 `json:"manager_id,omitempty"`
 }
 
 // MarshalText renders the bot's profile and command menu.
@@ -60,6 +65,12 @@ func (r botInfoResult) MarshalText(w io.Writer) error {
 	}
 	if r.InlinePlaceholder != "" {
 		lines = append(lines, fmt.Sprintf("inline mode: %q", r.InlinePlaceholder))
+	}
+	if r.CanManageBots {
+		lines = append(lines, "bot management mode: on")
+	}
+	if r.ManagerID != 0 {
+		lines = append(lines, fmt.Sprintf("managed by bot id=%d", r.ManagerID))
 	}
 	lines = append(lines, fmt.Sprintf("commands (%d):", len(r.Commands)))
 	for _, c := range r.Commands {
@@ -79,6 +90,8 @@ func newBotInfoResult(ref peerRef, u *tg.User, full *tg.UserFull) botInfoResult 
 		CanJoinGroups:         !u.BotNochats,
 		ReadsAllGroupMessages: u.BotChatHistory,
 		ActiveUsers:           u.BotActiveUsers,
+		CanManageBots:         u.BotCanManageBots,
+		ManagerID:             full.BotManagerID,
 	}
 	info, ok := full.GetBotInfo()
 	if !ok {

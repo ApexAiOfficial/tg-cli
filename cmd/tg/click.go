@@ -41,7 +41,16 @@ type clickResult struct {
 	Answer *callbackAnswer `json:"answer,omitempty"`
 	// SentMessageID is the message sent by a reply-keyboard button.
 	SentMessageID int `json:"sent_message_id,omitempty"`
+	// CreatedBot is the bot created for a "create a bot" request button.
+	CreatedBot *peerRef `json:"created_bot,omitempty"`
 	*conversation
+}
+
+// pressOptions carries what some buttons need besides the press itself.
+type pressOptions struct {
+	// botName and botUsername answer a "create a bot" request button; empty
+	// values take the bot's suggestions.
+	botName, botUsername string
 }
 
 // MarshalText renders what was pressed and what came back.
@@ -49,6 +58,8 @@ func (r clickResult) MarshalText(w io.Writer) error {
 	line := fmt.Sprintf("pressed %q (%s, row %d, col %d) on message #%d",
 		r.Button.Text, r.Button.Type, r.Row, r.Col, r.MessageID)
 	switch {
+	case r.CreatedBot != nil:
+		line += fmt.Sprintf(": created %s id=%d", r.CreatedBot.label(), r.CreatedBot.ID)
 	case r.SentMessageID != 0:
 		line += fmt.Sprintf(": sent message #%d", r.SentMessageID)
 	case r.Button.URL != "":
@@ -120,6 +131,7 @@ func pressButton(
 	peer tg.InputPeerClass,
 	msgID int,
 	b keyboardButton,
+	opts pressOptions,
 ) (clickResult, error) {
 	res := clickResult{MessageID: msgID, Row: b.Row, Col: b.Col, Button: b.item}
 	switch v := b.raw.(type) {
@@ -151,6 +163,13 @@ func pressButton(
 		}
 		res.SentMessageID = id
 		return res, nil
+	case *tg.KeyboardButtonRequestPeer:
+		created, err := answerCreateBotRequest(ctx, api, peer, msgID, v, opts)
+		if created != nil {
+			ref := userRef(created)
+			res.CreatedBot = &ref
+		}
+		return res, err
 	case *tg.KeyboardButtonURL, *tg.KeyboardButtonURLAuth, *tg.KeyboardButtonWebView,
 		*tg.KeyboardButtonSimpleWebView, *tg.KeyboardButtonCopy:
 		// These act only in the client: nothing reaches the bot. The result
@@ -159,6 +178,56 @@ func pressButton(
 	default:
 		return res, errors.Errorf("%s buttons cannot be pressed from tg", b.item.Type)
 	}
+}
+
+// answerCreateBotRequest answers a bot's "create a bot" request button
+// (Bot API KeyboardButtonRequestManagedBot) as Telegram's apps do: it creates
+// the bot, managed by the asking bot, then shares it with that bot, which
+// receives a managed_bot update and a managed_bot_created message. A bot that
+// was created is returned even when sharing it fails.
+func answerCreateBotRequest(
+	ctx context.Context,
+	api *tg.Client,
+	peer tg.InputPeerClass,
+	msgID int,
+	v *tg.KeyboardButtonRequestPeer,
+	opts pressOptions,
+) (*tg.User, error) {
+	req, ok := v.PeerType.(*tg.RequestPeerTypeCreateBot)
+	if !ok {
+		return nil, errors.Errorf("request_peer buttons that ask for an existing %s cannot be pressed from tg", newRequestPeerItem(v).Kind)
+	}
+	if !req.BotManaged {
+		return nil, errors.New("this button asks for a bot nobody manages; tg answers only managed-bot requests")
+	}
+	asker, ok := peer.(*tg.InputPeerUser)
+	if !ok {
+		return nil, errors.New("a managed-bot request can only come from a bot in a private chat")
+	}
+	name, username := opts.botName, opts.botUsername
+	if name == "" {
+		name = req.SuggestedName
+	}
+	if username == "" {
+		username = req.SuggestedUsername
+	}
+	if err := validateNewBot(name, username); err != nil {
+		return nil, err
+	}
+	created, err := createBot(ctx, api, name, username, &tg.InputUser{UserID: asker.UserID, AccessHash: asker.AccessHash}, false)
+	if err != nil {
+		return nil, err
+	}
+	share := &tg.MessagesSendBotRequestedPeerRequest{
+		Peer:           peer,
+		ButtonID:       v.ButtonID,
+		RequestedPeers: []tg.InputPeerClass{&tg.InputPeerUser{UserID: created.ID, AccessHash: created.AccessHash}},
+	}
+	share.SetMsgID(msgID)
+	if _, err := api.MessagesSendBotRequestedPeer(ctx, share); err != nil {
+		return created, errors.Wrapf(err, "created @%s (id %d) but could not share it: messages.sendBotRequestedPeer", created.Username, created.ID)
+	}
+	return created, nil
 }
 
 // botCallbackAnswer sends a callback query and returns the bot's answer. A bot
@@ -178,6 +247,7 @@ func (a *app) newClickCmd() *cobra.Command {
 	var (
 		sel  buttonSelector
 		wait waitOptions
+		opts pressOptions
 	)
 
 	cmd := &cobra.Command{
@@ -190,6 +260,10 @@ func (a *app) newClickCmd() *cobra.Command {
   callback   sends the callback query and prints the bot's answer (toast/alert)
   text       (reply keyboard) sends the button's label as a message
   url, copy  nothing is sent; the URL or text is printed
+  request_peer (create_bot)
+             creates the bot the button asks for, managed by the asking bot,
+             and shares it (--bot-name, --bot-username; default: the bot's
+             suggestions). The new bot's token is never printed.
 
 Choose the button with --text (exact label, then case-insensitive, then a
 unique substring), --data (callback data), --index (1-based, reading order) or
@@ -237,7 +311,7 @@ edit the message whose button was pressed).`,
 				}
 
 				collector.arm(inputPeerID(peer))
-				res, err := pressButton(ctx, api, sender.To(peer), peer, msg.ID, btn)
+				res, err := pressButton(ctx, api, sender.To(peer), peer, msg.ID, btn, opts)
 				if err != nil {
 					return err
 				}
@@ -259,6 +333,8 @@ edit the message whose button was pressed).`,
 	fs.IntVar(&sel.index, "index", 0, "press the n-th button (1-based, reading order)")
 	fs.IntVar(&sel.row, "row", 0, "press the button in this row (1-based, with --col)")
 	fs.IntVar(&sel.col, "col", 0, "press the button in this column (1-based, with --row)")
+	fs.StringVar(&opts.botName, "bot-name", "", "name of the bot a create-bot button asks for (default: its suggestion)")
+	fs.StringVar(&opts.botUsername, "bot-username", "", "username of the bot a create-bot button asks for (default: its suggestion)")
 	wait.register(fs)
 
 	return cmd
