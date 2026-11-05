@@ -55,7 +55,30 @@ func listParticipants(
 	if !ok {
 		return peerListResult{}, errors.Errorf("unexpected participants type %T", res)
 	}
-	return usersToPeerList(full.Users), nil
+	return participantPeers(full), nil
+}
+
+// participantPeers lists the participants themselves. The response's Users also
+// holds the users who invited, promoted or removed them, so listing Users would
+// put the admin who removed someone on the kicked list.
+func participantPeers(res *tg.ChannelsChannelParticipants) peerListResult {
+	ent := entitiesOf(res.Users, res.Chats)
+	var out peerListResult
+	for _, pc := range res.Participants {
+		var p tg.PeerClass
+		switch v := pc.(type) {
+		case *tg.ChannelParticipantBanned:
+			p = v.Peer
+		case *tg.ChannelParticipantLeft:
+			p = v.Peer
+		case interface{ GetUserID() int64 }:
+			p = &tg.PeerUser{UserID: v.GetUserID()}
+		default:
+			continue
+		}
+		out.Peers = append(out.Peers, describePeer(p, ent))
+	}
+	return out
 }
 
 func (a *app) participantsCmd(use, short, filter string) *cobra.Command {
