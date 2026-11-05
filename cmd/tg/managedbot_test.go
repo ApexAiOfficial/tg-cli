@@ -220,8 +220,8 @@ func TestBotInfoManagedFields(t *testing.T) {
 
 func TestPeerCacheFileIsPerSessionKind(t *testing.T) {
 	a := &app{configPath: filepath.Join(t.TempDir(), "gotd.cli.yaml")}
-	user := &accountState{label: "default", acc: Account{BotToken: "1:x"}}
-	bot := &accountState{label: "default", acc: Account{BotToken: "1:x"}, kind: authBot}
+	user := &accountState{label: defaultAccount, acc: Account{BotToken: "1:x"}}
+	bot := &accountState{label: defaultAccount, acc: Account{BotToken: "1:x"}, kind: authBot}
 	u, b := a.peerCacheFile(user), a.peerCacheFile(bot)
 	if u == b {
 		t.Fatalf("user and bot sessions share the peer cache %s", u)
