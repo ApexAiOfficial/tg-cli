@@ -21,7 +21,7 @@ func TestParticipantPeers(t *testing.T) {
 		Users: []tg.UserClass{
 			&tg.User{ID: adminID, Username: "kicker"},
 			&tg.User{ID: botID, Username: "oldbot", Bot: true},
-			&tg.User{ID: memberID, Username: "member"},
+			&tg.User{ID: memberID, Username: "carol"},
 		},
 		Chats: []tg.ChatClass{&tg.Channel{ID: 9, Title: "Spam channel"}},
 	}
@@ -29,7 +29,7 @@ func TestParticipantPeers(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("got %d peers, want 3: %+v", len(got), got)
 	}
-	if got[0].Username != "oldbot" || got[1].Username != "member" || got[2].ID != 9 {
+	if got[0].Username != "oldbot" || got[1].Username != "carol" || got[2].ID != 9 {
 		t.Errorf("peers = %+v", got)
 	}
 	for _, p := range got {
