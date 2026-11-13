@@ -107,12 +107,23 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
 - **Diagnostics:** `doctor` checks config, credentials, session, peer cache, connection
   and login, with a fix hint for each failure (`--offline` skips the network).
 - **Bots:** `click` (press inline/keyboard buttons), `start-bot` (deep-link start),
-  `bot-info`, and `--wait` reply collection on `send`/`reply`/`click`/`start-bot`/`upload`.
-- **Media:** `upload` (with `--type` video/audio/voice/gif/sticker), `album`, `download`,
+  `bot-info`, `webapp` (open a Mini App and get its signed launch data), `invoice` (read an
+  invoice's payment form without paying), `create-bot` (create a bot, optionally managed by
+  another bot, from flags or a `t.me/newbot/...` link), `bot-token` (as a manager bot: save a
+  managed bot's token to a 0600 file, or rotate it), `bot-access` (as a manager bot: who may
+  use a managed bot), and `--wait` reply
+  collection on `send`/`reply`/`click`/`start-bot`/`upload`. `click` also answers a bot's
+  "create a bot" button (managed bots).
+- **Media:** `upload` (with `--type` photo/video/audio/voice/gif/sticker), `album`, `download`,
   `stickers`.
 - **Chats & contacts:** `chats list`, `chat get`/`full`, `mute`/`unmute`,
-  `archive`/`unarchive`, `resolve`, `search-public`, `subscribe`, `contacts` (list,
+  `archive`/`unarchive`, `resolve`, `search-public` (with each chat's kind and member count),
+  `similar` (Telegram's similar-channel recommendations), `subscribe`, `contacts` (list,
   search, add, delete, block/unblock, blocked, import).
+- **Research before taking part:** `inspect` (a group's or channel's kind, size, slow mode,
+  paid messages, what members may not post, linked chat, bots and pinned rules; invite links
+  are previewed without joining) and `activity` (messages per day, senders, link and repeat
+  shares, busiest UTC hours and weekdays, and how often one sender posts links again).
 - **Groups & channels:** `create-group`, `create-channel`, `invite`, `leave`,
   `participants`/`admins`/`banned`, `promote`/`demote`, `ban`/`unban`, `slow-mode`,
   `set-title`/`set-about`/`set-photo`, `invite-link`/`join-link`, `recent-actions`,
@@ -135,6 +146,8 @@ a person would and check what actually happens:
 
 ```console
 $ tg bot-info @mybot                                  # descriptions, command menu, menu button
+$ tg webapp @mybot --out session.json                 # open its Mini App: real signed launch data, owner-only file
+$ tg invoice 'https://t.me/$AbCdEf123' -o json       # what the payment sheet would charge; pays nothing
 $ tg send --peer @mybot /start --wait 30s -o json     # send, then collect replies until the bot settles
 $ tg start-bot @mybot ref_42 --wait 20s               # deep link: t.me/mybot?start=ref_42
 $ tg click @mybot --text "Settings" --wait 15s -o json  # press an inline button, get the answer + edits
