@@ -174,7 +174,7 @@ Accounts without Premium see only the first few; "total" says how many exist.`,
 					if err != nil {
 						return err
 					}
-					p, err := m.Resolve(ctx, args[0])
+					p, err := resolveManagedPeer(ctx, m, args[0])
 					if err != nil {
 						return errors.Wrapf(err, "resolve %q", args[0])
 					}

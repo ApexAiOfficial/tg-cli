@@ -204,9 +204,13 @@ tg pinned @somegroup --limit 10 -o json        # older pins often hold the rules
   `join_request`, `slowmode_seconds`, `paid_message_stars` (each message costs
   Stars), `members_cannot` (e.g. `send_messages`, `embed_links`), `i_cannot`,
   `linked_chat`, `bots`, `pinned` (`id`, `date`, `text`). An invite link is
-  previewed (`preview: true`) unless the account may already read the chat.
-  A flood wait stops the run and marks the rest `skipped`.
-- `activity`: `per_day`, `active_days`, `last_age_hours`, `senders`,
+  previewed (`preview: true`) unless the account may already read the chat;
+  `limited: true` means Telegram refused the full information (a private
+  channel). A per-peer failure is that result's `error` (with `retry_after`
+  on a flood wait); a flood wait stops the run and marks the rest `skipped`,
+  and the exit code is the first failure's.
+- `activity`: `per_day` (over the sampled span when `truncated`, else over
+  the `--days` window or the chat's history), `active_days`, `last_age_hours`, `senders`,
   `top5_sender_share`, `link_share`, `bot_link_share`, `mention_share`,
   `duplicate_share` (copy-paste spam), `reply_share` (conversation),
   `by_hour_utc`, `by_weekday_utc`, `peak_hours_utc`, `top_domains`, and

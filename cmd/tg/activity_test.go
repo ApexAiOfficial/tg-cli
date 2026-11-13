@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram/message/peer"
 	"github.com/gotd/td/tg"
 )
@@ -50,7 +52,7 @@ func TestNewActivityMsg(t *testing.T) {
 	msg := &tg.Message{ID: 1, Date: 100, Message: "ask @helper_bot", PeerID: &tg.PeerChannel{ChannelID: 9}}
 	msg.SetFromID(&tg.PeerUser{UserID: 5})
 	msg.SetFwdFrom(tg.MessageFwdHeader{})
-	msg.SetReplyTo(&tg.MessageReplyHeader{ReplyToMsgID: 0})
+	msg.SetReplyTo(&tg.MessageReplyHeader{ReplyToMsgID: 1})
 	msg.SetMedia(&tg.MessageMediaPhoto{})
 	am, ok := newActivityMsg(msg, ent)
 	if !ok || am.SenderID != 5 || !am.SenderBot || !am.Forward || !am.Reply || !am.Media {
@@ -84,16 +86,16 @@ func TestComputeActivity(t *testing.T) {
 		{Date: at(24), SenderID: 1, Text: promo + " 2", URLs: []string{"https://example.com/x"}}, // duplicate once digits are stripped
 		{Date: at(30), SenderID: 4, SenderBot: true, Text: "welcome @newcomer", Mentions: []string{"newcomer"}},
 		{Date: at(48), SenderID: 1, Text: "third", URLs: []string{"www.example.com"}},
-		{Date: at(10), Service: "chat_add_user"},
+		{Date: at(10), Service: actionChatAddUser},
 		{Date: at(11), Service: "pin_message"},
 	}
 	now := base.Add(50 * time.Hour)
-	res := computeActivity(peerRef{ID: 9, Type: peerChannel, Username: "g"}, msgs, now)
+	res := computeActivity(peerRef{ID: 9, Type: peerChannel, Username: "g"}, msgs, now, activityWindow{Exhausted: true})
 
 	if res.Sampled != 6 || res.Service != 2 || res.Joins != 1 {
 		t.Fatalf("counts: sampled %d service %d joins %d", res.Sampled, res.Service, res.Joins)
 	}
-	if res.SpanHours != 48 || res.PerDay != 3 || res.ActiveDays != 3 || res.LastAgeHours != 2 {
+	if res.SpanHours != 48 || res.PerDay != 2.9 || res.ActiveDays != 3 || res.LastAgeHours != 2 {
 		t.Fatalf("span %v perday %v days %d age %v", res.SpanHours, res.PerDay, res.ActiveDays, res.LastAgeHours)
 	}
 	if res.Senders != 4 || res.TopSenderShare != 1 {
@@ -115,7 +117,7 @@ func TestComputeActivity(t *testing.T) {
 }
 
 func TestComputeActivityEmpty(t *testing.T) {
-	res := computeActivity(peerRef{ID: 1, Type: peerChannel}, []activityMsg{{Date: 5, Service: "chat_add_user"}}, time.Unix(10, 0))
+	res := computeActivity(peerRef{ID: 1, Type: peerChannel}, []activityMsg{{Date: 5, Service: actionChatAddUser}}, time.Unix(10, 0), activityWindow{Exhausted: true})
 	if res.Sampled != 0 || res.Joins != 1 || res.PeakHours != nil {
 		t.Fatalf("empty = %+v", res)
 	}
@@ -147,5 +149,95 @@ func TestPeakHoursTies(t *testing.T) {
 	h[3], h[5], h[20] = 2, 2, 7
 	if got := peakHours(h, 2); len(got) != 2 || got[0] != 20 || got[1] != 3 {
 		t.Fatalf("peakHours = %v", got)
+	}
+}
+
+func TestPerDay(t *testing.T) {
+	const day = 86400
+	for _, tc := range []struct {
+		name       string
+		n          float64
+		span       int
+		sinceFirst int
+		window     activityWindow
+		want       float64
+	}{
+		{"truncated busy chat: rate over the span", 400, 4 * 3600, 4 * 3600, activityWindow{Truncated: true}, 2400},
+		{"truncated burst: span floored at an hour", 50, 60, 60, activityWindow{Truncated: true}, 1200},
+		{"window reached: rate over the window", 42, 3600, 20 * day, activityWindow{Days: 21}, 2},
+		{"history starts inside the window", 30, 9 * day, 10 * day, activityWindow{Days: 21, Exhausted: true}, 3},
+		{"young chat: at least a day", 3, 600, 600, activityWindow{Days: 21, Exhausted: true}, 3},
+		{"no window: since the first message", 30, 9 * day, 10 * day, activityWindow{Exhausted: true}, 3},
+	} {
+		if got := perDay(tc.n, tc.span, tc.sinceFirst, tc.window); got != tc.want {
+			t.Errorf("%s: perDay = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestIsRealReply(t *testing.T) {
+	withHeader := func(h tg.MessageReplyHeader) *tg.Message {
+		m := &tg.Message{}
+		m.SetReplyTo(&h)
+		return m
+	}
+	topicMsg := tg.MessageReplyHeader{ForumTopic: true, ReplyToMsgID: 10}
+	topicReply := tg.MessageReplyHeader{ForumTopic: true, ReplyToMsgID: 12}
+	topicReply.SetReplyToTopID(10)
+	for _, tc := range []struct {
+		name string
+		m    *tg.Message
+		want bool
+	}{
+		{"no header", &tg.Message{}, false},
+		{"plain reply", withHeader(tg.MessageReplyHeader{ReplyToMsgID: 3}), true},
+		{"message in a forum topic", withHeader(topicMsg), false},
+		{"reply inside a forum topic", withHeader(topicReply), true},
+	} {
+		if got := isRealReply(tc.m); got != tc.want {
+			t.Errorf("%s: isRealReply = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// historyAPI serves a chat whose messages have ids 1..n and date 100*id,
+// honoring the history request's offset and limit.
+func historyAPI(t *testing.T, n int) *tg.Client {
+	return newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		r, ok := req.(*tg.MessagesGetHistoryRequest)
+		if !ok {
+			t.Fatalf("unexpected request %T", req)
+		}
+		top := n
+		if r.OffsetID > 0 {
+			top = r.OffsetID - 1
+		}
+		var msgs []tg.MessageClass
+		for id := top; id >= 1 && len(msgs) < r.Limit; id-- {
+			msgs = append(msgs, &tg.Message{ID: id, Date: 100 * id, Message: "m", PeerID: &tg.PeerChannel{ChannelID: 1}})
+		}
+		return &tg.MessagesChannelMessages{Messages: msgs, Count: n}, nil
+	})
+}
+
+func TestReadActivityStops(t *testing.T) {
+	ctx := context.Background()
+	ip := &tg.InputPeerChannel{ChannelID: 1}
+
+	msgs, w, err := readActivity(ctx, historyAPI(t, 5), ip, 3, 0)
+	if err != nil || len(msgs) != 3 || !w.Truncated || w.Exhausted {
+		t.Fatalf("limit: %d msgs, %+v, %v", len(msgs), w, err)
+	}
+	msgs, w, err = readActivity(ctx, historyAPI(t, 5), ip, 10, 250)
+	if err != nil || len(msgs) != 3 || w.Truncated || w.Exhausted {
+		t.Fatalf("cutoff: %d msgs, %+v, %v", len(msgs), w, err)
+	}
+	msgs, w, err = readActivity(ctx, historyAPI(t, 5), ip, 10, 0)
+	if err != nil || len(msgs) != 5 || w.Truncated || !w.Exhausted {
+		t.Fatalf("whole history: %d msgs, %+v, %v", len(msgs), w, err)
+	}
+	msgs, w, err = readActivity(ctx, historyAPI(t, 2), ip, 2, 0)
+	if err != nil || len(msgs) != 2 || w.Truncated || !w.Exhausted {
+		t.Fatalf("limit equal to history: %d msgs, %+v, %v", len(msgs), w, err)
 	}
 }
