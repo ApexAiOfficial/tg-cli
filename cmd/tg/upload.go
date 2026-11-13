@@ -21,7 +21,6 @@ import (
 	"github.com/gotd/td/clock"
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/styling"
-	"github.com/gotd/td/telegram/message/unpack"
 	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 
@@ -219,7 +218,7 @@ func (a *app) uploadOne(
 		}
 
 		b, options := uf.msg.apply(builder, uf.message)
-		id, err := unpack.MessageID(b.Media(ctx, prepareFile(uf, fileInput, options, fileName, m.String())))
+		id, err := sentMessageID(b.Media(ctx, prepareFile(uf, fileInput, options, fileName, m.String())))
 		if err != nil {
 			return errors.Wrapf(err, "send %q", path)
 		}
