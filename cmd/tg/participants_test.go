@@ -19,7 +19,7 @@ func TestParticipantPeers(t *testing.T) {
 			&tg.ChannelParticipantLeft{Peer: &tg.PeerChannel{ChannelID: 9}},
 		},
 		Users: []tg.UserClass{
-			&tg.User{ID: adminID, Username: "admin"},
+			&tg.User{ID: adminID, Username: "kicker"},
 			&tg.User{ID: botID, Username: "oldbot", Bot: true},
 			&tg.User{ID: memberID, Username: "member"},
 		},
@@ -33,7 +33,7 @@ func TestParticipantPeers(t *testing.T) {
 		t.Errorf("peers = %+v", got)
 	}
 	for _, p := range got {
-		if p.Username == "admin" {
+		if p.Username == "kicker" {
 			t.Errorf("kicker listed as participant: %+v", p)
 		}
 	}
