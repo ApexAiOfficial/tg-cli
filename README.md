@@ -117,8 +117,13 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
 - **Media:** `upload` (with `--type` photo/video/audio/voice/gif/sticker), `album`, `download`,
   `stickers`.
 - **Chats & contacts:** `chats list`, `chat get`/`full`, `mute`/`unmute`,
-  `archive`/`unarchive`, `resolve`, `search-public`, `subscribe`, `contacts` (list,
+  `archive`/`unarchive`, `resolve`, `search-public` (with each chat's kind and member count),
+  `similar` (Telegram's similar-channel recommendations), `subscribe`, `contacts` (list,
   search, add, delete, block/unblock, blocked, import).
+- **Research before taking part:** `inspect` (a group's or channel's kind, size, slow mode,
+  paid messages, what members may not post, linked chat, bots and pinned rules; invite links
+  are previewed without joining) and `activity` (messages per day, senders, link and repeat
+  shares, busiest UTC hours and weekdays, and how often one sender posts links again).
 - **Groups & channels:** `create-group`, `create-channel`, `invite`, `leave`,
   `participants`/`admins`/`banned`, `promote`/`demote`, `ban`/`unban`, `slow-mode`,
   `set-title`/`set-about`/`set-photo`, `invite-link`/`join-link`, `topics`,

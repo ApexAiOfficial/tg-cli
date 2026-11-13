@@ -139,6 +139,7 @@ These directly cover "upload files to myself, list chats, mark chats as read, re
 - [x] `chat get` / `chat full`.
 - [x] `mute` / `unmute` / `archive` / `unarchive`.
 - [x] `resolve <username>`, `search-public <query>`, `subscribe`.
+- [x] `inspect`, `activity` and `similar`: research a group or channel before taking part.
 - [x] Contacts: list / search / add / delete / block / unblock / blocked / import / export.
 
 ### Phase 4 — Groups & channels admin
