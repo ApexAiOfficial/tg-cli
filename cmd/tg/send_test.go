@@ -139,3 +139,52 @@ func TestWarmPreviewStops(t *testing.T) {
 		}
 	}
 }
+
+func TestSentMessageIDScheduled(t *testing.T) {
+	scheduled := &tg.Updates{Updates: []tg.UpdateClass{
+		&tg.UpdateMessageID{ID: 1, RandomID: 42},
+		&tg.UpdateNewScheduledMessage{Message: &tg.Message{ID: 9, PeerID: &tg.PeerUser{UserID: 1}}},
+	}}
+	if id, err := sentMessageID(scheduled, nil); err != nil || id != 9 {
+		t.Fatalf("scheduled: id %d, err %v", id, err)
+	}
+	if id, err := sentMessageID(&tg.UpdateShortSentMessage{ID: 5}, nil); err != nil || id != 5 {
+		t.Fatalf("plain: id %d, err %v", id, err)
+	}
+	if _, err := sentMessageID(&tg.Updates{}, nil); err == nil {
+		t.Fatal("no message: want an error")
+	}
+}
+
+func TestSendStyledScheduled(t *testing.T) {
+	api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		r, ok := req.(*tg.MessagesSendMessageRequest)
+		if !ok {
+			t.Fatalf("unexpected request %T", req)
+		}
+		if r.ScheduleDate == 0 { // flags are set only when the request is encoded
+			t.Fatal("not scheduled")
+		}
+		return &tg.Updates{Updates: []tg.UpdateClass{
+			&tg.UpdateMessageID{ID: 1, RandomID: r.RandomID},
+			&tg.UpdateNewScheduledMessage{Message: &tg.Message{ID: 3, PeerID: &tg.PeerUser{UserID: 1}, Message: r.Message}},
+		}}, nil
+	})
+	rb := message.NewSender(api).To(&tg.InputPeerSelf{})
+	b := (&rb.Builder).Schedule(time.Now().Add(time.Hour))
+	id, err := sendStyled(context.Background(), api, b, []styling.StyledTextOption{styling.Plain("later")}, previewOptions{})
+	if err != nil || id != 3 {
+		t.Fatalf("sendStyled scheduled = %d, %v", id, err)
+	}
+}
+
+func TestSentMessageIDEdits(t *testing.T) {
+	for _, u := range []tg.UpdateClass{
+		&tg.UpdateEditChannelMessage{Message: &tg.Message{ID: 24, PeerID: &tg.PeerChannel{ChannelID: 1}}},
+		&tg.UpdateEditMessage{Message: &tg.Message{ID: 24, PeerID: &tg.PeerUser{UserID: 1}}},
+	} {
+		if id, err := sentMessageID(&tg.Updates{Updates: []tg.UpdateClass{u}}, nil); err != nil || id != 24 {
+			t.Fatalf("%T: id %d, err %v", u, id, err)
+		}
+	}
+}
