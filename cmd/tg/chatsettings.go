@@ -44,7 +44,7 @@ func rightFields(r *tg.ChatBannedRights) []rightField {
 		{"send_inline", &r.SendInline},
 		{"send_polls", &r.SendPolls},
 		{"send_reactions", &r.SendReactions},
-		{"embed_links", &r.EmbedLinks},
+		{rightEmbedLinks, &r.EmbedLinks},
 		{"change_info", &r.ChangeInfo},
 		{"invite_users", &r.InviteUsers},
 		{"pin_messages", &r.PinMessages},
@@ -63,8 +63,9 @@ func rightNames() []string {
 	return names
 }
 
-// deniedRights lists the rights r denies to members.
-func deniedRights(r tg.ChatBannedRights) []string {
+// deniedDefaultRights lists the rights of rightFields that r denies to members.
+// inspect's deniedRights also covers view_messages, in its own order.
+func deniedDefaultRights(r tg.ChatBannedRights) []string {
 	var out []string
 	for _, f := range rightFields(&r) {
 		if *f.flag {
@@ -209,7 +210,7 @@ Rights: ` + strings.Join(rightNames(), ", ") + `.`,
 						return errors.Wrap(err, "messages.editChatDefaultBannedRights")
 					}
 				}
-				return a.printer.Emit(permissionsResult{Denied: append([]string{}, deniedRights(next)...)})
+				return a.printer.Emit(permissionsResult{Denied: append([]string{}, deniedDefaultRights(next)...)})
 			})
 		},
 	}
@@ -222,14 +223,6 @@ Rights: ` + strings.Join(rightNames(), ", ") + `.`,
 // requested state is already in place.
 func tgIsNotModified(err error) bool {
 	return tgerr.Is(err, tg.ErrChatNotModified)
-}
-
-// wrapRPC tags a non-nil RPC error with the method name; nil stays nil.
-func wrapRPC(err error, method string) error {
-	if err != nil {
-		return errors.Wrap(err, method)
-	}
-	return nil
 }
 
 // reactionsRequest builds the available-reactions setting from the flags.

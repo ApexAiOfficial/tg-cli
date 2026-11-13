@@ -16,7 +16,7 @@ func TestApplyRights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := deniedRights(next), []string{"pin_messages", "manage_topics"}; !reflect.DeepEqual(got, want) {
+	if got, want := deniedDefaultRights(next), []string{"pin_messages", "manage_topics"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("denied = %v, want %v", got, want)
 	}
 	if !next.EditRank || next.UntilDate != 42 {
@@ -55,7 +55,7 @@ func TestRightNamesCoverFields(t *testing.T) {
 	for _, f := range rightFields(&r) {
 		*f.flag = true
 	}
-	if got := deniedRights(r); len(got) != len(names) {
+	if got := deniedDefaultRights(r); len(got) != len(names) {
 		t.Errorf("denied %d rights, want %d", len(got), len(names))
 	}
 }

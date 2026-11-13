@@ -121,7 +121,7 @@ func channelSettings(ch *tg.Channel, full *tg.ChannelFull) chatSettings {
 	}
 	_, s.HasPhoto = full.ChatPhoto.(*tg.Photo)
 	if rights, ok := ch.GetDefaultBannedRights(); ok {
-		s.DefaultBannedRights = deniedRights(rights)
+		s.DefaultBannedRights = deniedDefaultRights(rights)
 	}
 	s.AvailableReactions, s.Reactions = describeReactions(full.AvailableReactions)
 	return s
@@ -271,7 +271,7 @@ func fillChatFull(ctx context.Context, p peers.Peer, res *chatFullResult) error 
 		res.About = full.About
 		res.PinnedMsgID = full.PinnedMsgID
 		if rights, ok := v.Raw().GetDefaultBannedRights(); ok {
-			res.DefaultBannedRights = deniedRights(rights)
+			res.DefaultBannedRights = deniedDefaultRights(rights)
 		}
 		res.AvailableReactions, res.Reactions = describeReactions(full.AvailableReactions)
 	}
