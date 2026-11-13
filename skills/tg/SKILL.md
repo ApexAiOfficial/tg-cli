@@ -186,6 +186,40 @@ known. Bots and Telegram rate-limit: pace bursts, don't loop the same command,
 and prefer one `--wait` call over polling `history`. On exit code 5, wait
 `.error.retry_after` seconds before retrying.
 
+## Researching groups and channels
+
+Read-only commands for judging a community before joining or posting. None
+of them joins, posts or marks anything read.
+
+```bash
+tg search-public "digital products" -o json   # .data.peers[]: kind, members
+tg similar @somechannel -o json                # channels Telegram calls similar
+tg inspect @somegroup https://t.me/+AbCdEf123 --interval 5s -o json
+tg activity @somegroup --limit 400 --days 21 -o json
+tg pinned @somegroup --limit 10 -o json        # older pins often hold the rules
+```
+
+- `inspect` (`.data.results[]`): `kind` (broadcast, supergroup, forum,
+  gigagroup, group, user, bot), `members`, `online`, `about`, `member`,
+  `join_request`, `slowmode_seconds`, `paid_message_stars` (each message costs
+  Stars), `members_cannot` (e.g. `send_messages`, `embed_links`), `i_cannot`,
+  `linked_chat`, `bots`, `pinned` (`id`, `date`, `text`). An invite link is
+  previewed (`preview: true`) unless the account may already read the chat;
+  `limited: true` means Telegram refused the full information (a private
+  channel). A per-peer failure is that result's `error` (with `retry_after`
+  on a flood wait); a flood wait stops the run and marks the rest `skipped`,
+  and the exit code is the first failure's.
+- `activity`: `per_day` (over the sampled span when `truncated`, else over
+  the `--days` window or the chat's history), `active_days`, `last_age_hours`, `senders`,
+  `top5_sender_share`, `link_share`, `bot_link_share`, `mention_share`,
+  `duplicate_share` (copy-paste spam), `reply_share` (conversation),
+  `by_hour_utc`, `by_weekday_utc`, `peak_hours_utc`, `top_domains`, and
+  `promoters` (`median_gap_hours` between one sender's link posts: what the
+  chat tolerates in practice).
+- Resolving usernames is rate-limited: inspect a batch with `--interval`, and
+  stop on exit code 5. A description that invites promotion is not
+  permission: read `members_cannot`, the pins and the bots before posting.
+
 ## Multiple accounts
 
 ```bash
