@@ -12,10 +12,13 @@ import (
 
 // messageContext fetches messages surrounding a message id (radius on each side).
 func messageContext(ctx context.Context, api *tg.Client, peer tg.InputPeerClass, id, radius int) (historyResult, error) {
+	// offset_id excludes the message itself: an add_offset of -(radius+1)
+	// starts the page radius messages after it, so the page is the radius
+	// newer messages, the message, and the radius older ones.
 	res, err := api.MessagesGetHistory(ctx, &tg.MessagesGetHistoryRequest{
 		Peer:      peer,
 		OffsetID:  id,
-		AddOffset: -radius,
+		AddOffset: -radius - 1,
 		Limit:     2*radius + 1,
 	})
 	if err != nil {
