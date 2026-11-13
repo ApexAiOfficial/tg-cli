@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/gotd/td/telegram/message/styling"
-	"github.com/gotd/td/telegram/message/unpack"
 	"github.com/gotd/td/tg"
 )
 
@@ -51,7 +50,7 @@ func (a *app) newScheduleSendCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				id, err := unpack.MessageID(
+				id, err := sentMessageID(
 					bf.Schedule(when).StyledText(ctx, styling.Plain(args[1])),
 				)
 				if err != nil {
