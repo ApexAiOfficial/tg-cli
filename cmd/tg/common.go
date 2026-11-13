@@ -122,9 +122,11 @@ func isWebScheme(scheme string) bool {
 	return scheme == "https" || scheme == "http"
 }
 
-// sentMessageID returns the id of the message a send created. unpack.MessageID
-// does not recognize a scheduled message (updateNewScheduledMessage), so a
-// scheduled send that succeeded would otherwise be reported as a failure.
+// sentMessageID returns the id of the message a send created or an edit
+// changed. unpack.MessageID recognizes neither a scheduled message
+// (updateNewScheduledMessage) nor an edit (updateEditMessage,
+// updateEditChannelMessage), so a scheduled send or an edit that succeeded
+// would otherwise be reported as a failure.
 func sentMessageID(upd tg.UpdatesClass, err error) (int, error) {
 	if err != nil {
 		return 0, err
@@ -141,8 +143,13 @@ func sentMessageID(upd tg.UpdatesClass, err error) (int, error) {
 		updates = u.Updates
 	}
 	for _, x := range updates {
-		if s, ok := x.(*tg.UpdateNewScheduledMessage); ok {
-			return s.Message.GetID(), nil
+		switch v := x.(type) {
+		case *tg.UpdateNewScheduledMessage:
+			return v.Message.GetID(), nil
+		case *tg.UpdateEditMessage:
+			return v.Message.GetID(), nil
+		case *tg.UpdateEditChannelMessage:
+			return v.Message.GetID(), nil
 		}
 	}
 	return 0, unpackErr
