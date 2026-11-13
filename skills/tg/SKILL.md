@@ -88,6 +88,13 @@ tg upload --peer me ./report.pdf
 tg upload --peer me ./clip.mp4 --type video
 tg download @x 12345 --out ./downloads/
 
+# Formatting and link previews: a hidden link (the visible text differs from
+# its target) and a large preview of a page chosen with --preview-url, shown
+# above the text; the preview falls back to none if Telegram cannot build it
+tg send --peer @x --html --preview-url https://example.com --large-preview --preview-above \
+  '<b>New</b>: try <a href="https://t.me/mybot?start=src1">@mybot</a>'
+tg send --peer @x --html --nowebpage --schedule 3h --stdin < post.html   # scheduled, no preview
+
 # Realtime
 tg watch @x -o json                 # stream new messages as JSON lines (long-running)
 tg wait  @x --timeout 30s -o json   # block for the next message, then exit
