@@ -74,7 +74,7 @@ const previewWarmAttempts = 6
 // is pending: a page Telegram has not fetched yet cannot be attached
 // (WEBPAGE_NOT_FOUND). Failures are ignored; the send then decides.
 func warmPreview(ctx context.Context, api *tg.Client, pageURL string, pause time.Duration) {
-	for range previewWarmAttempts {
+	for attempt := 1; ; attempt++ {
 		res, err := api.MessagesGetWebPagePreview(ctx, &tg.MessagesGetWebPagePreviewRequest{Message: pageURL})
 		if err != nil {
 			return
@@ -86,8 +86,8 @@ func warmPreview(ctx context.Context, api *tg.Client, pageURL string, pause time
 		if _, pending := media.Webpage.(*tg.WebPagePending); !pending {
 			return
 		}
-		if sleepCtx(ctx, pause) != nil {
-			return
+		if attempt == previewWarmAttempts || sleepCtx(ctx, pause) != nil {
+			return // still pending: the send goes out without waiting longer
 		}
 	}
 }

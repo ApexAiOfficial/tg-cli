@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/html"
 	"github.com/gotd/td/telegram/message/styling"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 func TestPreviewOptionsValidate(t *testing.T) {
@@ -103,5 +105,37 @@ func TestSendStyledPlain(t *testing.T) {
 	id, err := sendStyled(context.Background(), api, b, []styling.StyledTextOption{styling.Plain("hi")}, previewOptions{})
 	if err != nil || id != 3 {
 		t.Fatalf("sendStyled = %d, %v", id, err)
+	}
+}
+
+func TestWarmPreviewStops(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply func() (bin.Encoder, error)
+		want  int // getWebPagePreview calls
+	}{
+		{"pending throughout: bounded attempts", func() (bin.Encoder, error) {
+			return &tg.MessagesWebPagePreview{Media: &tg.MessageMediaWebPage{Webpage: &tg.WebPagePending{ID: 1}}}, nil
+		}, previewWarmAttempts},
+		{"ready at once", func() (bin.Encoder, error) {
+			return &tg.MessagesWebPagePreview{Media: &tg.MessageMediaWebPage{Webpage: &tg.WebPage{ID: 1, URL: "https://e.x", DisplayURL: "e.x"}}}, nil
+		}, 1},
+		{"no preview for this page", func() (bin.Encoder, error) {
+			return &tg.MessagesWebPagePreview{Media: &tg.MessageMediaEmpty{}}, nil
+		}, 1},
+		{"rpc error", func() (bin.Encoder, error) { return nil, tgerr.New(420, "FLOOD_WAIT_30") }, 1},
+	} {
+		calls := 0
+		api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+			if _, ok := req.(*tg.MessagesGetWebPagePreviewRequest); !ok {
+				t.Fatalf("unexpected request %T", req)
+			}
+			calls++
+			return tc.reply()
+		})
+		warmPreview(context.Background(), api, "https://e.x", time.Millisecond)
+		if calls != tc.want {
+			t.Errorf("%s: %d calls, want %d", tc.name, calls, tc.want)
+		}
 	}
 }
