@@ -13,7 +13,6 @@ import (
 
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/styling"
-	"github.com/gotd/td/telegram/message/unpack"
 	"github.com/gotd/td/tg"
 )
 
@@ -57,14 +56,14 @@ func sendStyled(
 	ctx context.Context, api *tg.Client, b *message.Builder, options []styling.StyledTextOption, preview previewOptions,
 ) (int, error) {
 	if preview.url == "" {
-		return unpack.MessageID(b.StyledText(ctx, options...))
+		return sentMessageID(b.StyledText(ctx, options...))
 	}
 	warmPreview(ctx, api, preview.url, time.Second)
 	if preview.above {
 		b = b.InvertMedia()
 	}
 	wp := message.WebPage(preview.url, options...).ForceLargeMedia(preview.large).Optional(true)
-	return unpack.MessageID(b.Media(ctx, wp))
+	return sentMessageID(b.Media(ctx, wp))
 }
 
 // previewWarmAttempts bounds how often warmPreview asks for a pending preview.
