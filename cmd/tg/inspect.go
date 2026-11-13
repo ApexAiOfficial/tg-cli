@@ -20,7 +20,7 @@ const (
 	kindBroadcast  = "broadcast"  // a channel: only admins post
 	kindSupergroup = "supergroup" // a group where members post
 	kindGigagroup  = "gigagroup"  // a broadcast group: members read only
-	kindForum      = "forum"      // a supergroup organised in topics
+	kindForum      = "forum"      // a supergroup organized in topics
 	kindGroup      = "group"      // a basic (legacy) group
 	chatKindUser   = "user"
 	chatKindBot    = "bot"
@@ -35,6 +35,10 @@ type inspectResult struct {
 	// Preview is true when only an invite link's preview was readable (the
 	// account is not a member and the link allows no peek).
 	Preview bool `json:"preview,omitempty"`
+	// Limited is true when the chat's full information was refused (a
+	// private channel the account cannot read): only its basic object is
+	// reported, so about, online, slow mode, bots and the pin are unknown.
+	Limited bool `json:"limited,omitempty"`
 
 	Verified   bool     `json:"verified,omitempty"`
 	Scam       bool     `json:"scam,omitempty"`
@@ -46,8 +50,9 @@ type inspectResult struct {
 	Online  int    `json:"online,omitempty"`
 	Admins  int    `json:"admins,omitempty"`
 
-	// Member is whether this account belongs to the chat. Channel dates mean
-	// the join date for members and the creation date otherwise.
+	// Member is whether this account belongs to the chat. A channel's date is
+	// the join date for members and the creation date otherwise; a basic
+	// group's is always its creation date.
 	Member    bool `json:"member"`
 	Admin     bool `json:"admin,omitempty"`
 	JoinedAt  int  `json:"joined_at,omitempty"`
@@ -117,70 +122,92 @@ func (r inspectListResult) MarshalText(w io.Writer) error {
 
 func (r inspectResult) writeText(w io.Writer) error {
 	var b strings.Builder
-	label := r.Input
-	if r.Peer != nil {
-		label = r.Peer.label()
-	}
 	switch {
 	case r.Skipped:
 		fmt.Fprintf(&b, "%s: skipped (an earlier peer hit a flood wait)\n", r.Input)
 	case r.Error != nil:
 		fmt.Fprintf(&b, "%s: error: %s\n", r.Input, r.Error.Message)
 	default:
-		fmt.Fprintf(&b, "%s [%s]", label, r.Kind)
-		if r.Peer != nil && r.Peer.ID != 0 {
-			fmt.Fprintf(&b, " id=%d", r.Peer.ID)
-		}
-		for name, on := range map[string]bool{"preview": r.Preview, "member": r.Member, "admin": r.Admin, "verified": r.Verified, "scam": r.Scam, "fake": r.Fake} {
-			if on {
-				b.WriteString(" " + name)
-			}
-		}
-		b.WriteString("\n")
-		if r.Members > 0 {
-			fmt.Fprintf(&b, "  members: %d", r.Members)
-			if r.Online > 0 {
-				fmt.Fprintf(&b, " (online %d)", r.Online)
-			}
-			b.WriteString("\n")
-		}
-		if r.SlowmodeSeconds > 0 {
-			fmt.Fprintf(&b, "  slow mode: %s\n", time.Duration(r.SlowmodeSeconds)*time.Second)
-		}
-		if r.PaidMessageStars > 0 {
-			fmt.Fprintf(&b, "  each message costs %d Stars\n", r.PaidMessageStars)
-		}
-		if r.SubscriptionStars > 0 {
-			fmt.Fprintf(&b, "  paid subscription: %d Stars per %d days\n", r.SubscriptionStars, r.SubscriptionDays)
-		}
-		if r.JoinRequest {
-			b.WriteString("  joining needs an admin's approval\n")
-		}
-		if len(r.MembersCannot) > 0 {
-			fmt.Fprintf(&b, "  members cannot: %s\n", strings.Join(r.MembersCannot, ", "))
-		}
-		if len(r.ICannot) > 0 {
-			fmt.Fprintf(&b, "  this account cannot: %s\n", strings.Join(r.ICannot, ", "))
-		}
-		if len(r.Bots) > 0 {
-			names := make([]string, 0, len(r.Bots))
-			for _, bot := range r.Bots {
-				names = append(names, bot.label())
-			}
-			fmt.Fprintf(&b, "  bots: %s\n", strings.Join(names, ", "))
-		}
-		if r.LinkedChat != nil {
-			fmt.Fprintf(&b, "  linked: %s\n", r.LinkedChat.label())
-		}
-		if r.About != "" {
-			fmt.Fprintf(&b, "  about: %s\n", oneLine(r.About))
-		}
-		if r.Pinned != nil && r.Pinned.Text != "" {
-			fmt.Fprintf(&b, "  pinned #%d: %s\n", r.Pinned.ID, oneLine(r.Pinned.Text))
-		}
+		r.writeHeader(&b)
+		r.writeRules(&b)
+		r.writeContext(&b)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeHeader writes the first line: label, kind, id and flags, then sizes.
+func (r inspectResult) writeHeader(b *strings.Builder) {
+	label := r.Input
+	if r.Peer != nil {
+		label = r.Peer.label()
+	}
+	fmt.Fprintf(b, "%s [%s]", label, r.Kind)
+	if r.Peer != nil && r.Peer.ID != 0 {
+		fmt.Fprintf(b, " id=%d", r.Peer.ID)
+	}
+	flags := []struct {
+		name string
+		on   bool
+	}{
+		{"preview", r.Preview}, {"limited", r.Limited}, {"member", r.Member}, {"admin", r.Admin},
+		{"verified", r.Verified}, {"scam", r.Scam}, {"fake", r.Fake},
+	}
+	for _, f := range flags {
+		if f.on {
+			b.WriteString(" " + f.name)
+		}
+	}
+	b.WriteString("\n")
+	if r.Members > 0 {
+		fmt.Fprintf(b, "  members: %d", r.Members)
+		if r.Online > 0 {
+			fmt.Fprintf(b, " (online %d)", r.Online)
+		}
+		b.WriteString("\n")
+	}
+}
+
+// writeRules writes who may post what.
+func (r inspectResult) writeRules(b *strings.Builder) {
+	if r.SlowmodeSeconds > 0 {
+		fmt.Fprintf(b, "  slow mode: %s\n", time.Duration(r.SlowmodeSeconds)*time.Second)
+	}
+	if r.PaidMessageStars > 0 {
+		fmt.Fprintf(b, "  each message costs %d Stars\n", r.PaidMessageStars)
+	}
+	if r.SubscriptionStars > 0 {
+		fmt.Fprintf(b, "  paid subscription: %d Stars per %d days\n", r.SubscriptionStars, r.SubscriptionDays)
+	}
+	if r.JoinRequest {
+		b.WriteString("  joining needs an admin's approval\n")
+	}
+	if len(r.MembersCannot) > 0 {
+		fmt.Fprintf(b, "  members cannot: %s\n", strings.Join(r.MembersCannot, ", "))
+	}
+	if len(r.ICannot) > 0 {
+		fmt.Fprintf(b, "  this account cannot: %s\n", strings.Join(r.ICannot, ", "))
+	}
+}
+
+// writeContext writes the bots, the linked chat, the description and the pin.
+func (r inspectResult) writeContext(b *strings.Builder) {
+	if len(r.Bots) > 0 {
+		names := make([]string, 0, len(r.Bots))
+		for _, bot := range r.Bots {
+			names = append(names, bot.label())
+		}
+		fmt.Fprintf(b, "  bots: %s\n", strings.Join(names, ", "))
+	}
+	if r.LinkedChat != nil {
+		fmt.Fprintf(b, "  linked: %s\n", r.LinkedChat.label())
+	}
+	if r.About != "" {
+		fmt.Fprintf(b, "  about: %s\n", oneLine(r.About))
+	}
+	if r.Pinned != nil && r.Pinned.Text != "" {
+		fmt.Fprintf(b, "  pinned #%d: %s\n", r.Pinned.ID, oneLine(r.Pinned.Text))
+	}
 }
 
 // oneLine collapses whitespace so multi-line text fits one line.
@@ -202,6 +229,10 @@ func channelKind(ch *tg.Channel) string {
 	}
 }
 
+// rightEmbedLinks names the right to send links, the one promotion most
+// often runs into.
+const rightEmbedLinks = "embed_links"
+
 // deniedRights lists the actions a set of banned rights forbids, in a fixed
 // order. A banned right that is set means the action is NOT allowed.
 func deniedRights(r tg.ChatBannedRights) []string {
@@ -220,7 +251,7 @@ func deniedRights(r tg.ChatBannedRights) []string {
 		{"send_gifs", r.SendGifs},
 		{"send_inline", r.SendInline},
 		{"send_polls", r.SendPolls},
-		{"embed_links", r.EmbedLinks},
+		{rightEmbedLinks, r.EmbedLinks},
 		{"invite_users", r.InviteUsers},
 		{"pin_messages", r.PinMessages},
 		{"change_info", r.ChangeInfo},
@@ -316,9 +347,7 @@ func buildChatInspect(res *inspectResult, c *tg.Chat, full *tg.ChatFull, users [
 	res.Kind = kindGroup
 	res.Members = c.ParticipantsCount
 	res.Member = !c.Left && !c.Deactivated
-	if res.Member {
-		res.JoinedAt = c.Date
-	}
+	res.CreatedAt = c.Date // a basic group's date is its creation date
 	if rights, ok := c.GetDefaultBannedRights(); ok {
 		res.MembersCannot = deniedRights(rights)
 	}
@@ -434,31 +463,9 @@ peers as skipped. The exit code is that of the first failure.`,
 				if err != nil {
 					return err
 				}
-				out := inspectListResult{Results: make([]inspectResult, 0, len(args))}
-				var firstErr error
-				flooded := false
-				for i, arg := range args {
-					if flooded {
-						out.Results = append(out.Results, inspectResult{Input: arg, Skipped: true})
-						continue
-					}
-					if i > 0 && interval > 0 {
-						if err := sleepCtx(ctx, interval); err != nil {
-							return err
-						}
-					}
-					res, err := inspectOne(ctx, api, m, arg, !noPinned)
-					if err != nil {
-						info := classifyError(err)
-						res = inspectResult{Input: arg, Error: &info}
-						if firstErr == nil {
-							firstErr = err
-						}
-						if _, ok := tgerr.AsFloodWait(err); ok {
-							flooded = true
-						}
-					}
-					out.Results = append(out.Results, res)
+				out, firstErr, err := inspectAll(ctx, api, m, args, interval, !noPinned)
+				if err != nil {
+					return err
 				}
 				if err := a.printer.Emit(out); err != nil {
 					return err
@@ -475,6 +482,40 @@ peers as skipped. The exit code is that of the first failure.`,
 	cmd.Flags().BoolVar(&noPinned, "no-pinned", false, "do not fetch the pinned message's text")
 
 	return cmd
+}
+
+// inspectAll inspects each argument in turn, interval apart. A per-peer failure
+// is recorded in its result and the first one is returned as firstErr; after a
+// flood wait the remaining peers are marked skipped. err is set only when the
+// context ends.
+func inspectAll(
+	ctx context.Context, api *tg.Client, m *peerManager, args []string, interval time.Duration, withPinned bool,
+) (out inspectListResult, firstErr, err error) {
+	out.Results = make([]inspectResult, 0, len(args))
+	flooded := false
+	for i, arg := range args {
+		if flooded {
+			out.Results = append(out.Results, inspectResult{Input: arg, Skipped: true})
+			continue
+		}
+		if i > 0 && interval > 0 {
+			if serr := sleepCtx(ctx, interval); serr != nil {
+				return out, firstErr, serr
+			}
+		}
+		res, ierr := inspectOne(ctx, api, m, arg, withPinned)
+		if ierr != nil {
+			// Keep whatever was learned before the failure.
+			info := classifyError(ierr)
+			res.Input, res.Error = arg, &info
+			if firstErr == nil {
+				firstErr = ierr
+			}
+			_, flooded = tgerr.AsFloodWait(ierr)
+		}
+		out.Results = append(out.Results, res)
+	}
+	return out, firstErr, nil
 }
 
 // sleepCtx waits for d or until ctx is done.
@@ -510,7 +551,7 @@ func inspectOne(ctx context.Context, api *tg.Client, m *peerManager, arg string,
 		}
 	}
 
-	p, err := m.Resolve(ctx, arg)
+	p, err := resolveManagedPeer(ctx, m, arg)
 	if err != nil {
 		return res, errors.Wrapf(err, "resolve %q", arg)
 	}
@@ -548,6 +589,7 @@ func inspectChatClass(ctx context.Context, api *tg.Client, res inspectResult, ch
 			// basic object: report that much.
 			if tgerr.Is(err, "CHANNEL_PRIVATE", "CHANNEL_PUBLIC_GROUP_NA") {
 				buildChannelInspect(&res, c, nil, nil, nil)
+				res.Limited = true
 				return res, nil
 			}
 			return res, errors.Wrap(err, "channels.getFullChannel")
@@ -572,9 +614,7 @@ func inspectChatClass(ctx context.Context, api *tg.Client, res inspectResult, ch
 		if c.Megagroup {
 			res.Kind = kindSupergroup
 		}
-		info := classifyError(notFoundf("banned from this channel or it is private"))
-		res.Error = &info
-		return res, nil
+		return res, notFoundf("banned from this channel, or it is private")
 	case *tg.Chat:
 		full, err := api.MessagesGetFullChat(ctx, c.ID)
 		if err != nil {

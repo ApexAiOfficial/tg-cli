@@ -31,12 +31,12 @@ type activityMsg struct {
 	Media     bool
 	Reply     bool
 	Views     int
-	// Service is a service message's action, e.g. "chat_add_user"; such
+	// Service is a service message's action, e.g. actionChatAddUser; such
 	// messages are counted apart from the others.
 	Service string
 }
 
-// activityResult summarises recent activity in a chat.
+// activityResult summarizes recent activity in a chat.
 type activityResult struct {
 	Peer peerRef `json:"peer"`
 	// Sampled counts the ordinary messages read (service messages apart).
@@ -45,10 +45,15 @@ type activityResult struct {
 	// Joins counts "joined" service messages in the window (often hidden).
 	Joins int `json:"joins,omitempty"`
 
-	From         int     `json:"from,omitempty"` // unix time of the oldest message
-	To           int     `json:"to,omitempty"`   // unix time of the newest
-	SpanHours    float64 `json:"span_hours"`
-	PerDay       float64 `json:"per_day"`
+	From      int     `json:"from,omitempty"` // unix time of the oldest message
+	To        int     `json:"to,omitempty"`   // unix time of the newest
+	SpanHours float64 `json:"span_hours"`
+	PerDay    float64 `json:"per_day"`
+	// Truncated is true when --limit cut the sample short, so the window
+	// holds more messages than were read; per_day is then the rate over the
+	// sampled span. Otherwise it is the rate over WindowDays (or the span).
+	Truncated    bool    `json:"truncated,omitempty"`
+	WindowDays   int     `json:"window_days,omitempty"`
 	ActiveDays   int     `json:"active_days"`
 	LastAgeHours float64 `json:"last_age_hours"`
 
@@ -163,7 +168,7 @@ func newActivityMsg(mc tg.NotEmptyMessage, ent peer.Entities) (activityMsg, bool
 		if media, ok := m.GetMedia(); ok && mediaType(media) != "" && mediaType(media) != "webpage" {
 			am.Media = true
 		}
-		_, am.Reply = m.GetReplyTo()
+		am.Reply = isRealReply(m)
 		return am, true
 	case *tg.MessageService:
 		action := snakeCase(strings.TrimPrefix(m.Action.TypeName(), "messageAction"))
@@ -171,6 +176,25 @@ func newActivityMsg(mc tg.NotEmptyMessage, ent peer.Entities) (activityMsg, bool
 	default:
 		return activityMsg{}, false
 	}
+}
+
+// isRealReply reports whether a message answers another message. In a forum
+// every message carries a reply header naming its topic; only one that also
+// names the topic's top message (reply_to_top_id) answers a message.
+func isRealReply(m *tg.Message) bool {
+	rt, ok := m.GetReplyTo()
+	if !ok {
+		return false
+	}
+	h, ok := rt.(*tg.MessageReplyHeader)
+	if !ok || h.ReplyToMsgID == 0 {
+		return false
+	}
+	if h.ForumTopic {
+		_, inTopic := h.GetReplyToTopID()
+		return inTopic
+	}
+	return true
 }
 
 // isBotName reports whether a username names a bot (Telegram requires bot
@@ -188,7 +212,7 @@ func linksToBot(m activityMsg) bool {
 	}
 	for _, raw := range m.URLs {
 		host, path := splitURL(raw)
-		if host != "t.me" && host != "telegram.me" && host != "telegram.dog" {
+		if !isTelegramLinkHost(host) && host != "telegram.dog" {
 			continue
 		}
 		first, _, _ := strings.Cut(strings.TrimPrefix(path, "/"), "/")
@@ -226,115 +250,170 @@ func normalizeText(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// computeActivity summarises msgs (in any order) as of now.
-func computeActivity(ref peerRef, msgs []activityMsg, now time.Time) activityResult {
-	res := activityResult{Peer: ref}
-	var (
-		ordinary  []activityMsg
-		senders   = map[int64]int{}
-		days      = map[string]bool{}
-		domains   = map[string]int{}
-		texts     = map[string]bool{}
-		linkTimes = map[int64][]int{}
-		views     []int
-	)
-	for _, m := range msgs {
-		if m.Service != "" {
-			res.Service++
-			if m.Service == "chat_add_user" || m.Service == "chat_joined_by_link" || m.Service == "chat_joined_by_request" {
-				res.Joins++
-			}
-			continue
+// activityWindow describes how a sample was read.
+type activityWindow struct {
+	Truncated bool // the read stopped at --limit, not at the window's start
+	Exhausted bool // the read reached the start of the chat's history
+	Days      int  // the requested window (--days), 0 for none
+}
+
+// Service actions that mean someone joined the chat.
+const (
+	actionChatAddUser         = "chat_add_user"
+	actionChatJoinedByLink    = "chat_joined_by_link"
+	actionChatJoinedByRequest = "chat_joined_by_request"
+)
+
+// activityTally accumulates per-message counts for computeActivity.
+type activityTally struct {
+	senders   map[int64]int
+	days      map[string]bool
+	domains   map[string]int
+	texts     map[string]bool
+	linkTimes map[int64][]int
+	views     []int
+
+	links, botLinks, mentions, forwards, media, replies, bots, dups int
+}
+
+func newActivityTally() *activityTally {
+	return &activityTally{
+		senders:   map[int64]int{},
+		days:      map[string]bool{},
+		domains:   map[string]int{},
+		texts:     map[string]bool{},
+		linkTimes: map[int64][]int{},
+	}
+}
+
+// countIf adds one to *n when cond holds.
+func countIf(n *int, cond bool) {
+	if cond {
+		*n++
+	}
+}
+
+// add counts one ordinary message, and its time into res's histograms.
+func (t *activityTally) add(m activityMsg, res *activityResult) {
+	res.From = min(res.From, m.Date)
+	res.To = max(res.To, m.Date)
+	at := time.Unix(int64(m.Date), 0).UTC()
+	res.ByHour[at.Hour()]++
+	res.ByWeekday[int(at.Weekday())]++
+	t.days[at.Format("2006-01-02")] = true
+	if m.SenderID != 0 {
+		t.senders[m.SenderID]++
+	}
+	if len(m.URLs) > 0 {
+		t.links++
+		t.addLinks(m)
+	}
+	countIf(&t.botLinks, linksToBot(m))
+	countIf(&t.mentions, len(m.Mentions) > 0)
+	countIf(&t.forwards, m.Forward)
+	countIf(&t.media, m.Media)
+	countIf(&t.replies, m.Reply)
+	countIf(&t.bots, m.SenderBot)
+	if norm := normalizeText(m.Text); len(norm) >= 20 {
+		countIf(&t.dups, t.texts[norm])
+		t.texts[norm] = true
+	}
+	if m.Views > 0 {
+		t.views = append(t.views, m.Views)
+	}
+}
+
+// addLinks records a link message's domains and its sender's link times.
+func (t *activityTally) addLinks(m activityMsg) {
+	for _, u := range m.URLs {
+		if host, _ := splitURL(u); host != "" {
+			t.domains[host]++
 		}
-		ordinary = append(ordinary, m)
+	}
+	if m.SenderID != 0 {
+		t.linkTimes[m.SenderID] = append(t.linkTimes[m.SenderID], m.Date)
+	}
+}
+
+// topShare returns how many messages the k busiest senders wrote.
+func (t *activityTally) topShare(k int) int {
+	counts := make([]int, 0, len(t.senders))
+	for _, c := range t.senders {
+		counts = append(counts, c)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(counts)))
+	top := 0
+	for i := 0; i < len(counts) && i < k; i++ {
+		top += counts[i]
+	}
+	return top
+}
+
+// computeActivity summarizes msgs (in any order) as of now.
+func computeActivity(ref peerRef, msgs []activityMsg, now time.Time, window activityWindow) activityResult {
+	res := activityResult{Peer: ref, Truncated: window.Truncated, WindowDays: window.Days}
+	var ordinary []activityMsg
+	for _, m := range msgs {
+		switch m.Service {
+		case "":
+			ordinary = append(ordinary, m)
+		case actionChatAddUser, actionChatJoinedByLink, actionChatJoinedByRequest:
+			res.Service++
+			res.Joins++
+		default:
+			res.Service++
+		}
 	}
 	res.Sampled = len(ordinary)
 	if res.Sampled == 0 {
 		return res
 	}
 
-	var links, botLinks, mentions, forwards, media, replies, bots, dups int
+	t := newActivityTally()
 	res.From, res.To = ordinary[0].Date, ordinary[0].Date
 	for _, m := range ordinary {
-		res.From = min(res.From, m.Date)
-		res.To = max(res.To, m.Date)
-		t := time.Unix(int64(m.Date), 0).UTC()
-		res.ByHour[t.Hour()]++
-		res.ByWeekday[int(t.Weekday())]++
-		days[t.Format("2006-01-02")] = true
-		if m.SenderID != 0 {
-			senders[m.SenderID]++
-		}
-		if len(m.URLs) > 0 {
-			links++
-			for _, u := range m.URLs {
-				if host, _ := splitURL(u); host != "" {
-					domains[host]++
-				}
-			}
-			if m.SenderID != 0 {
-				linkTimes[m.SenderID] = append(linkTimes[m.SenderID], m.Date)
-			}
-		}
-		if linksToBot(m) {
-			botLinks++
-		}
-		if len(m.Mentions) > 0 {
-			mentions++
-		}
-		if m.Forward {
-			forwards++
-		}
-		if m.Media {
-			media++
-		}
-		if m.Reply {
-			replies++
-		}
-		if m.SenderBot {
-			bots++
-		}
-		if norm := normalizeText(m.Text); len(norm) >= 20 {
-			if texts[norm] {
-				dups++
-			}
-			texts[norm] = true
-		}
-		if m.Views > 0 {
-			views = append(views, m.Views)
-		}
+		t.add(m, &res)
 	}
 
 	n := float64(res.Sampled)
 	share := func(k int) float64 { return round3(float64(k) / n) }
-	res.LinkShare, res.BotLinkShare, res.MentionShare = share(links), share(botLinks), share(mentions)
-	res.ForwardShare, res.MediaShare, res.ReplyShare = share(forwards), share(media), share(replies)
-	res.BotShare, res.DuplicateShare = share(bots), share(dups)
+	res.LinkShare, res.BotLinkShare, res.MentionShare = share(t.links), share(t.botLinks), share(t.mentions)
+	res.ForwardShare, res.MediaShare, res.ReplyShare = share(t.forwards), share(t.media), share(t.replies)
+	res.BotShare, res.DuplicateShare = share(t.bots), share(t.dups)
 
 	res.SpanHours = round1(float64(res.To-res.From) / 3600)
-	res.ActiveDays = len(days)
+	res.ActiveDays = len(t.days)
 	res.LastAgeHours = round1(now.Sub(time.Unix(int64(res.To), 0)).Hours())
-	// Messages per day over the sampled span; a span under a day counts as
-	// one day so that a burst does not read as a huge daily rate.
-	res.PerDay = round1(n / math.Max(1, float64(res.To-res.From)/86400))
+	res.PerDay = round1(perDay(n, res.To-res.From, int(now.Unix())-res.From, window))
 
-	res.Senders = len(senders)
-	counts := make([]int, 0, len(senders))
-	for _, c := range senders {
-		counts = append(counts, c)
-	}
-	sort.Sort(sort.Reverse(sort.IntSlice(counts)))
-	top := 0
-	for i := 0; i < len(counts) && i < 5; i++ {
-		top += counts[i]
-	}
-	res.TopSenderShare = share(top)
-
+	res.Senders = len(t.senders)
+	res.TopSenderShare = share(t.topShare(5))
 	res.PeakHours = peakHours(res.ByHour, 3)
-	res.TopDomains = topCounts(domains, 10)
-	res.MedianViews = medianInt(views)
-	res.Promoters = promoters(linkTimes)
+	res.TopDomains = topCounts(t.domains, 10)
+	res.MedianViews = medianInt(t.views)
+	res.Promoters = promoters(t.linkTimes)
 	return res
+}
+
+// perDay is the message rate. A truncated sample is a busy chat read only
+// back to its oldest sampled message, so the rate is over that span (at
+// least an hour). A complete sample covers the requested window, or, when the
+// chat's history starts inside it (or no window was asked for), the time
+// since its first message (at least a day), so a short burst in a quiet chat
+// does not read as a high daily rate. sinceFirst is the time from the oldest
+// sampled message to now.
+func perDay(n float64, spanSeconds, sinceFirstSeconds int, window activityWindow) float64 {
+	const day = 86400.0
+	switch {
+	case window.Truncated:
+		return n / math.Max(float64(spanSeconds)/day, 1.0/24)
+	case window.Days > 0 && !window.Exhausted:
+		return n / float64(window.Days)
+	case window.Days > 0:
+		return n / math.Max(math.Min(float64(window.Days), float64(sinceFirstSeconds)/day), 1)
+	default:
+		return n / math.Max(float64(sinceFirstSeconds)/day, 1)
+	}
 }
 
 // peakHours returns the k busiest hours, busiest first (ties: earlier hour).
@@ -370,7 +449,7 @@ func topCounts(m map[string]int, k int) []countItem {
 	return out
 }
 
-// promoters summarises how often link posters post links again.
+// promoters summarizes how often link posters post links again.
 func promoters(linkTimes map[int64][]int) promoterStats {
 	var st promoterStats
 	var gaps []float64
@@ -427,7 +506,11 @@ func (r activityResult) MarshalText(w io.Writer) error {
 		_, err := io.WriteString(w, b.String())
 		return err
 	}
-	fmt.Fprintf(&b, " over %.1f h (%.1f/day, %d active days), last %.1f h ago\n", r.SpanHours, r.PerDay, r.ActiveDays, r.LastAgeHours)
+	more := ""
+	if r.Truncated {
+		more = ", more before"
+	}
+	fmt.Fprintf(&b, " over %.1f h%s (%.1f/day, %d active days), last %.1f h ago\n", r.SpanHours, more, r.PerDay, r.ActiveDays, r.LastAgeHours)
 	fmt.Fprintf(&b, "  senders: %d (top 5 wrote %.0f%%), bots %.0f%%\n", r.Senders, r.TopSenderShare*100, r.BotShare*100)
 	fmt.Fprintf(&b, "  links %.0f%% (to bots %.0f%%), @mentions %.0f%%, forwards %.0f%%, media %.0f%%, replies %.0f%%, duplicates %.0f%%\n",
 		r.LinkShare*100, r.BotLinkShare*100, r.MentionShare*100, r.ForwardShare*100, r.MediaShare*100, r.ReplyShare*100, r.DuplicateShare*100)
@@ -474,8 +557,8 @@ func (a *app) newActivityCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "activity <peer>",
-		Short: "Summarise a chat's recent activity",
-		Long: `Read a chat's recent messages and summarise its activity: messages per
+		Short: "Summarize a chat's recent activity",
+		Long: `Read a chat's recent messages and summarize its activity: messages per
 day, active days, distinct senders and how concentrated they are, the share
 of messages with links, links to bots, forwards, media, replies and repeated
 text, a UTC histogram by hour and weekday with the busiest hours, the most
@@ -494,12 +577,15 @@ group can be read without joining. Use --days to bound the window by age and
 			if limit < 1 {
 				return usageError{errors.New("--limit must be at least 1")}
 			}
+			if days < 0 {
+				return usageError{errors.New("--days must not be negative")}
+			}
 			return a.run(cmd.Context(), runParams{auth: authUser}, func(ctx context.Context, api *tg.Client) error {
 				m, err := a.manager(api)
 				if err != nil {
 					return err
 				}
-				p, err := m.Resolve(ctx, args[0])
+				p, err := resolveManagedPeer(ctx, m, args[0])
 				if err != nil {
 					return errors.Wrapf(err, "resolve %q", args[0])
 				}
@@ -508,11 +594,12 @@ group can be read without joining. Use --days to bound the window by age and
 				if days > 0 {
 					cutoff = int(now.Add(-time.Duration(days) * 24 * time.Hour).Unix())
 				}
-				msgs, err := readActivity(ctx, api, p.InputPeer(), limit, cutoff)
+				msgs, window, err := readActivity(ctx, api, p.InputPeer(), limit, cutoff)
 				if err != nil {
 					return err
 				}
-				return a.printer.Emit(computeActivity(describeManagedPeer(p), msgs, now))
+				window.Days = days
+				return a.printer.Emit(computeActivity(describeManagedPeer(p), msgs, now, window))
 			})
 		},
 	}
@@ -524,23 +611,30 @@ group can be read without joining. Use --days to bound the window by age and
 }
 
 // readActivity reads up to limit messages, newest first, stopping at the first
-// message older than cutoff (a unix time; 0 for none).
-func readActivity(ctx context.Context, api *tg.Client, ip tg.InputPeerClass, limit, cutoff int) ([]activityMsg, error) {
+// message older than cutoff (a unix time; 0 for none). The window says why it
+// stopped: at the limit, at the start of the history, or (neither) at cutoff.
+func readActivity(
+	ctx context.Context, api *tg.Client, ip tg.InputPeerClass, limit, cutoff int,
+) (msgs []activityMsg, window activityWindow, err error) {
 	iter := query.Messages(api).GetHistory(ip).BatchSize(max(1, min(limit, 100))).Iter()
-	var out []activityMsg
-	for len(out) < limit && iter.Next(ctx) {
+	for iter.Next(ctx) {
 		elem := iter.Value()
 		am, ok := newActivityMsg(elem.Msg, elem.Entities)
 		if !ok {
 			continue
 		}
 		if cutoff > 0 && am.Date < cutoff {
-			break
+			return msgs, window, nil
 		}
-		out = append(out, am)
+		if len(msgs) == limit {
+			window.Truncated = true // a message beyond the limit exists
+			return msgs, window, nil
+		}
+		msgs = append(msgs, am)
 	}
 	if err := iter.Err(); err != nil {
-		return nil, errors.Wrap(err, "iterate history")
+		return nil, window, errors.Wrap(err, "iterate history")
 	}
-	return out, nil
+	window.Exhausted = true
+	return msgs, window, nil
 }

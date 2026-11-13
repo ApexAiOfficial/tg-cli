@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/gotd/td/bin"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 func TestInviteHashOf(t *testing.T) {
@@ -50,7 +54,7 @@ func TestChannelKind(t *testing.T) {
 
 func TestDeniedRights(t *testing.T) {
 	got := deniedRights(tg.ChatBannedRights{EmbedLinks: true, SendMedia: true, UntilDate: 99})
-	want := []string{"send_media", "embed_links"}
+	want := []string{"send_media", rightEmbedLinks}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("deniedRights = %v, want %v", got, want)
 	}
@@ -90,7 +94,7 @@ func TestBuildChannelInspect(t *testing.T) {
 	if res.SlowmodeSeconds != 300 || res.PaidMessageStars != 5 || !res.JoinRequest || !res.Antispam {
 		t.Fatalf("posting rules wrong: %+v", res)
 	}
-	if strings.Join(res.MembersCannot, ",") != "embed_links" {
+	if strings.Join(res.MembersCannot, ",") != rightEmbedLinks {
 		t.Fatalf("members_cannot = %v", res.MembersCannot)
 	}
 	if res.LinkedChat == nil || res.LinkedChat.Username != "sellersnews" {
@@ -144,7 +148,7 @@ func TestInspectListText(t *testing.T) {
 	ref := peerRef{ID: 10, Type: peerChannel, Name: "Sellers", Username: "sellers"}
 	var buf bytes.Buffer
 	err := inspectListResult{Results: []inspectResult{
-		{Input: "@sellers", Peer: &ref, Kind: kindSupergroup, Members: 10, SlowmodeSeconds: 60, MembersCannot: []string{"embed_links"},
+		{Input: "@sellers", Peer: &ref, Kind: kindSupergroup, Members: 10, SlowmodeSeconds: 60, MembersCannot: []string{rightEmbedLinks},
 			Pinned: &pinnedInfo{ID: 3, Text: "No ads\nexcept Fridays"}},
 		{Input: "@gone", Error: &errorInfo{Message: "not found"}},
 		{Input: "@later", Skipped: true},
@@ -157,5 +161,70 @@ func TestInspectListText(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("text output lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestInspectPrivateChannelIsLimited(t *testing.T) {
+	api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		if _, ok := req.(*tg.ChannelsGetFullChannelRequest); !ok {
+			t.Fatalf("unexpected request %T", req)
+		}
+		return nil, tgerr.New(400, "CHANNEL_PRIVATE")
+	})
+	ch := &tg.Channel{ID: 1, AccessHash: 2, Title: "Private", Megagroup: true, Left: true}
+	res, err := inspectChatClass(context.Background(), api, inspectResult{Input: "x"}, ch, true)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !res.Limited || res.Kind != kindSupergroup || res.Peer == nil || res.Peer.Name != "Private" {
+		t.Fatalf("res = %+v", res)
+	}
+}
+
+func TestInspectForbiddenChannelFails(t *testing.T) {
+	api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		t.Fatalf("unexpected request %T", req)
+		return nil, nil
+	})
+	res, err := inspectChatClass(context.Background(), api, inspectResult{Input: "x"}, &tg.ChannelForbidden{ID: 3, Title: "Gone", Megagroup: true}, true)
+	var nf notFoundError
+	if !errors.As(err, &nf) {
+		t.Fatalf("err = %v, want not found", err)
+	}
+	if res.Peer == nil || res.Peer.ID != 3 || res.Kind != kindSupergroup {
+		t.Fatalf("partial result lost: %+v", res)
+	}
+}
+
+func TestInspectChannelWithPin(t *testing.T) {
+	api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		switch r := req.(type) {
+		case *tg.ChannelsGetFullChannelRequest:
+			return &tg.MessagesChatFull{FullChat: &tg.ChannelFull{ID: 1, PinnedMsgID: 9, SlowmodeSeconds: 60, ChatPhoto: &tg.PhotoEmpty{}}}, nil
+		case *tg.ChannelsGetMessagesRequest:
+			if len(r.ID) != 1 {
+				t.Fatalf("ids = %v", r.ID)
+			}
+			return &tg.MessagesChannelMessages{Messages: []tg.MessageClass{&tg.Message{ID: 9, Date: 77, Message: "Rules: no ads", PeerID: &tg.PeerChannel{ChannelID: 1}}}}, nil
+		default:
+			t.Fatalf("unexpected request %T", req)
+			return nil, nil
+		}
+	})
+	ch := &tg.Channel{ID: 1, AccessHash: 2, Title: "G", Username: "g", Megagroup: true}
+	res, err := inspectChatClass(context.Background(), api, inspectResult{Input: "@g"}, ch, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Pinned == nil || res.Pinned.Text != "Rules: no ads" || res.Pinned.Date != 77 || res.SlowmodeSeconds != 60 {
+		t.Fatalf("res = %+v pinned %+v", res, res.Pinned)
+	}
+}
+
+func TestBuildChatInspectDates(t *testing.T) {
+	var res inspectResult
+	buildChatInspect(&res, &tg.Chat{ID: 5, Title: "Old", Date: 1600000000, ParticipantsCount: 4}, nil, nil)
+	if !res.Member || res.CreatedAt != 1600000000 || res.JoinedAt != 0 || res.Kind != kindGroup {
+		t.Fatalf("res = %+v", res)
 	}
 }
