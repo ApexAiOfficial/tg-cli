@@ -114,3 +114,8 @@ func (o *messageOptions) apply(
 
 	return b, []styling.StyledTextOption{option}
 }
+
+// isWebScheme reports whether a URL scheme is http or https.
+func isWebScheme(scheme string) bool {
+	return scheme == "https" || scheme == "http"
+}
