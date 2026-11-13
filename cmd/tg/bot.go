@@ -181,7 +181,7 @@ func parseBotLink(s string) (bot, param string, ok bool) {
 	switch {
 	case u.Scheme == "tg" && u.Host == "resolve":
 		bot = u.Query().Get("domain")
-	case (u.Scheme == "https" || u.Scheme == "http") && isTelegramLinkHost(u.Host):
+	case isWebScheme(u.Scheme) && isTelegramLinkHost(u.Host):
 		bot = strings.Trim(u.Path, "/")
 	default:
 		return "", "", false

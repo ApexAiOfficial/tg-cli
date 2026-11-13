@@ -114,6 +114,8 @@ Run `tg --help` for the full, grouped command list, or `tg <command> --help` for
   use a managed bot), and `--wait` reply
   collection on `send`/`reply`/`click`/`start-bot`/`upload`. `click` also answers a bot's
   "create a bot" button (managed bots).
+- **Formatting:** `send --html` (links, bold, blockquotes), `--preview-url` with `--large-preview` and
+  `--preview-above` to choose the link preview, `--nowebpage`, `--schedule`.
 - **Media:** `upload` (with `--type` photo/video/audio/voice/gif/sticker), `album`, `download`,
   `stickers`.
 - **Chats & contacts:** `chats list`, `chat get`/`full`, `mute`/`unmute`,

@@ -62,7 +62,7 @@ func parseNewBotLink(s string) (newBotLink, bool) {
 		raw = "https://" + raw
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || !isTelegramLinkHost(u.Host) {
+	if err != nil || !isWebScheme(u.Scheme) || !isTelegramLinkHost(u.Host) {
 		return newBotLink{}, false
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
