@@ -8,7 +8,6 @@ import (
 
 	"github.com/gotd/td/telegram/message/html"
 	"github.com/gotd/td/telegram/message/styling"
-	"github.com/gotd/td/telegram/message/unpack"
 	"github.com/gotd/td/tg"
 )
 
@@ -52,7 +51,7 @@ or a t.me link. The new text may come from --stdin.`,
 				if useHTML {
 					opt = html.String(nil, text)
 				}
-				newID, err := unpack.MessageID(bf.Edit(id).StyledText(ctx, opt))
+				newID, err := sentMessageID(bf.Edit(id).StyledText(ctx, opt))
 				if err != nil {
 					return errors.Wrap(err, "edit")
 				}

@@ -177,3 +177,14 @@ func TestSendStyledScheduled(t *testing.T) {
 		t.Fatalf("sendStyled scheduled = %d, %v", id, err)
 	}
 }
+
+func TestSentMessageIDEdits(t *testing.T) {
+	for _, u := range []tg.UpdateClass{
+		&tg.UpdateEditChannelMessage{Message: &tg.Message{ID: 24, PeerID: &tg.PeerChannel{ChannelID: 1}}},
+		&tg.UpdateEditMessage{Message: &tg.Message{ID: 24, PeerID: &tg.PeerUser{UserID: 1}}},
+	} {
+		if id, err := sentMessageID(&tg.Updates{Updates: []tg.UpdateClass{u}}, nil); err != nil || id != 24 {
+			t.Fatalf("%T: id %d, err %v", u, id, err)
+		}
+	}
+}

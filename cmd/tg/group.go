@@ -187,7 +187,7 @@ func (a *app) newLeaveCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				peerObj, err := m.Resolve(ctx, args[0])
+				peerObj, err := resolveManagedPeer(ctx, m, args[0])
 				if err != nil {
 					return errors.Wrapf(err, "resolve %q", args[0])
 				}
