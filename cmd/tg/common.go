@@ -12,6 +12,8 @@ import (
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/html"
 	"github.com/gotd/td/telegram/message/styling"
+	"github.com/gotd/td/telegram/message/unpack"
+	"github.com/gotd/td/tg"
 )
 
 // messageOptions holds flags shared by the send and upload commands.
@@ -118,4 +120,30 @@ func (o *messageOptions) apply(
 // isWebScheme reports whether a URL scheme is http or https.
 func isWebScheme(scheme string) bool {
 	return scheme == "https" || scheme == "http"
+}
+
+// sentMessageID returns the id of the message a send created. unpack.MessageID
+// does not recognize a scheduled message (updateNewScheduledMessage), so a
+// scheduled send that succeeded would otherwise be reported as a failure.
+func sentMessageID(upd tg.UpdatesClass, err error) (int, error) {
+	if err != nil {
+		return 0, err
+	}
+	id, unpackErr := unpack.MessageID(upd, nil)
+	if unpackErr == nil {
+		return id, nil
+	}
+	var updates []tg.UpdateClass
+	switch u := upd.(type) {
+	case *tg.Updates:
+		updates = u.Updates
+	case *tg.UpdatesCombined:
+		updates = u.Updates
+	}
+	for _, x := range updates {
+		if s, ok := x.(*tg.UpdateNewScheduledMessage); ok {
+			return s.Message.GetID(), nil
+		}
+	}
+	return 0, unpackErr
 }
