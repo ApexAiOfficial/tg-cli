@@ -188,3 +188,42 @@ func TestSentMessageIDEdits(t *testing.T) {
 		}
 	}
 }
+
+func TestEditWithPreviewKeepsCard(t *testing.T) {
+	var got *tg.MessagesEditMessageRequest
+	api := newFuncAPI(t, func(req bin.Encoder) (bin.Encoder, error) {
+		switch r := req.(type) {
+		case *tg.MessagesGetWebPagePreviewRequest:
+			page := &tg.WebPage{ID: 1, URL: r.Message, DisplayURL: "example.com/shop"}
+			return &tg.MessagesWebPagePreview{Media: &tg.MessageMediaWebPage{Webpage: page}}, nil
+		case *tg.MessagesEditMessageRequest:
+			got = r
+			return sentUpdates(30), nil
+		default:
+			t.Fatalf("unexpected request %T", req)
+			return nil, nil
+		}
+	})
+	opt := html.String(nil, `<b>Shop</b> <a href="https://t.me/x_bot?start=g1">@x_bot</a>`)
+	id, err := editWithPreview(context.Background(), api, &tg.InputPeerSelf{}, 30, opt,
+		previewOptions{url: "https://example.com/shop", large: true, above: true})
+	if err != nil || id != 30 {
+		t.Fatalf("editWithPreview = %d, %v", id, err)
+	}
+	if got.ID != 30 || got.Message != "Shop @x_bot" || !got.InvertMedia {
+		t.Fatalf("request = %#v", got)
+	}
+	wp, ok := got.Media.(*tg.InputMediaWebPage)
+	if !ok || wp.URL != "https://example.com/shop" || !wp.ForceLargeMedia || !wp.Optional {
+		t.Fatalf("media = %#v", got.Media)
+	}
+	var link *tg.MessageEntityTextURL
+	for _, e := range got.Entities {
+		if l, ok := e.(*tg.MessageEntityTextURL); ok {
+			link = l
+		}
+	}
+	if link == nil || link.URL != "https://t.me/x_bot?start=g1" {
+		t.Fatalf("hidden link entity = %#v", got.Entities)
+	}
+}
