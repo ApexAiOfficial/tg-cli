@@ -234,36 +234,14 @@ func channelKind(ch *tg.Channel) string {
 const rightEmbedLinks = "embed_links"
 
 // deniedRights lists the actions a set of banned rights forbids, in a fixed
-// order. A banned right that is set means the action is NOT allowed.
+// order: view_messages (banned from the chat), then the default member rights
+// in rightFields order. A banned right that is set means the action is NOT allowed.
 func deniedRights(r tg.ChatBannedRights) []string {
-	rights := []struct {
-		name string
-		on   bool
-	}{
-		{"view_messages", r.ViewMessages},
-		{"send_messages", r.SendMessages},
-		{"send_plain", r.SendPlain},
-		{"send_media", r.SendMedia},
-		{"send_photos", r.SendPhotos},
-		{"send_videos", r.SendVideos},
-		{"send_docs", r.SendDocs},
-		{"send_stickers", r.SendStickers},
-		{"send_gifs", r.SendGifs},
-		{"send_inline", r.SendInline},
-		{"send_polls", r.SendPolls},
-		{rightEmbedLinks, r.EmbedLinks},
-		{"invite_users", r.InviteUsers},
-		{"pin_messages", r.PinMessages},
-		{"change_info", r.ChangeInfo},
-		{"manage_topics", r.ManageTopics},
-	}
 	var out []string
-	for _, right := range rights {
-		if right.on {
-			out = append(out, right.name)
-		}
+	if r.ViewMessages {
+		out = append(out, "view_messages")
 	}
-	return out
+	return append(out, deniedDefaultRights(r)...)
 }
 
 // restrictionReasons renders platform restrictions as "platform:reason".
